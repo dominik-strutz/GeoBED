@@ -23,7 +23,6 @@ class BOED_sample():
         Args:
             filename (_type_): Filname of hdf5 file containing the prior, the design ad the data labeled as such. 
         """
-        #TODO: Make more flexible for other filetypes such as npy, csv, etc.
         #TODO: Implement generator mode
         
         self.filename = filename
@@ -97,33 +96,38 @@ class BOED_sample():
         self.data_likelihood = data_likelihood
         self.design_independent_likelihood = design_independent
     
-    def find_optimal_design(self, boed_method, boed_method_kwargs={}, return_dict=True, **kwargs):
+    def find_optimal_design(self, n_design, optimization_method, 
+                            boed_method, boed_method_kwargs={},
+                            return_dict=True, design_restriction=None, **kwargs):
         """_summary_
 
         Args:
             boed_method (_type_): _description_
         """        
-        if boed_method in ['dn', 'nmc', 'var_marg', 'var_post']:
-            self.boed_method = boed_method
+
+        if optimization_method == 'iterative construction':
+            raise NotImplementedError('Iterative construction not implemented yet')
+        elif optimization_method == 'iterative decimation':
+            raise NotImplementedError('Iterative decimation not implemented yet')
+        elif optimization_method == 'iterative exchange':
+            raise NotImplementedError('Iterative exchange not implemented yet')
+        elif optimization_method == 'genetic algorithm':
+            raise NotImplementedError('Genetic algorithm not implemented yet')
+        elif optimization_method == 'simulated annealing':
+            raise NotImplementedError('Simulated annealing not implemented yet')
+        elif optimization_method == 'global search':
+            raise NotImplementedError('Global search not implemented yet')
+        elif optimization_method in ['variational stochastic gradient descent', 'vsgd']:
+            raise NotImplementedError('Variational stochastic gradient descent not implemented yet')
         else:
-            raise NotImplementedError('BOED method not implemented. Please choose from one of the following: dn, nmc, var_marg, var_post')
+            raise ValueError('Optimization method not supported')#TODO: Keep updated with new methods
+
+
         
-        #TODO: Rename to get eig
         #TODO: do setting of design here
         #TODO: do data loading here, especially with regards to multidimensional designs each method should return (eig_list, process information) process information would be a dictionary of {loss, guide, information like (batched, N, M, stochastic or not, ...) }
-        
-        with dataloader(self.filename) as dataframe:
 
-            if self.boed_method == 'dn':
-                self.oed_results = dn(self, dataframe, **boed_method_kwargs)
-            elif self.boed_method == 'nmc':
-                self.oed_results = nmc(self, dataframe, **boed_method_kwargs)
-            elif self.boed_method == 'var_marg':
-                self.oed_results = var_marg(self, dataframe, **boed_method_kwargs)
-            elif self.boed_method == 'var_post':
-                self.oed_results = var_post(self, dataframe, **boed_method_kwargs)
-                            
-        return self.oed_results
+        # return self.oed_results
     
     
     def get_eig(self, design_list, boed_method, boed_method_kwargs={},
@@ -133,7 +137,7 @@ class BOED_sample():
         if boed_method in ['dn', 'nmc', 'var_marg', 'var_post']:
             self.boed_method = boed_method
         else:
-            raise NotImplementedError('BOED method not implemented. Please choose from one of the following: dn, nmc, var_marg, var_post')
+            raise ValueError('BOED method not implemented. Please choose from one of the following: dn, nmc, var_marg, var_post')
         
         with dataloader(self.filename) as dataframe:
             if self.boed_method == 'dn':

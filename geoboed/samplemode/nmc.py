@@ -6,7 +6,7 @@ import numpy as np
 
 
 
-def nmc(self, dataframe, design_list, N, M, reuse_N=False, return_dict=False):
+def nmc(self, dataframe, design_list, N, M, reuse_N=False, return_dict=False, preload_samples=True):
     """_summary_
 
     Args:
@@ -29,19 +29,31 @@ def nmc(self, dataframe, design_list, N, M, reuse_N=False, return_dict=False):
 
     eig_list = []
     
+    if preload_samples:
+        if reuse_N:
+            pre_samples = torch.tensor(dataframe['data'][:N])
+        else:
+            pre_samples = torch.tensor(dataframe['data'][:N*M])
         
     for i, design_i in tqdm(enumerate(design_list), total=len(design_list), disable=self.disable_tqdm):
         
         pyro.set_rng_seed(0)
         
-        samples = torch.tensor(dataframe['data'][:N, design_i]) 
+        if preload_samples:
+            samples = pre_samples[:N, design_i]
+        else:
+            samples = torch.tensor(dataframe['data'][:N, design_i])
+
         likelihoods = self.data_likelihood(samples, design_i)
                 
         if reuse_N:
             N_samples  = likelihoods.sample([1, ]).flatten(start_dim=0, end_dim=1)
             NM_samples = likelihoods.sample([M, ]).swapaxes(0, 1)
         else:
-            NM_samples = torch.tensor(dataframe['data'][:N*M, design_i])
+            if preload_samples:
+                NM_samples = pre_samples[:N*M, design_i]
+            else:
+                NM_samples = torch.tensor(dataframe['data'][:N*M, design_i])
             NM_likelihoods = self.data_likelihood(NM_samples, design_i)
             NM_samples = NM_likelihoods.sample([1, ]).reshape(M, N, len(design_i))
             N_samples = NM_samples[0]

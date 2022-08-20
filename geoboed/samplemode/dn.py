@@ -5,7 +5,7 @@ import torch
 import pyro
 import numpy as np
 
-def dn(self, dataframe, design_list, N=-1, return_dict=False):
+def dn(self, dataframe, design_list, N=-1, return_dict=False, preload_samples=True):
     """_summary_
 
     Args:
@@ -19,10 +19,15 @@ def dn(self, dataframe, design_list, N=-1, return_dict=False):
     
     eig_list = []
     
+    if preload_samples:
+        preloaded_samples = torch.tensor(dataframe['data'][:N])    
     
     for i, design_i in tqdm(enumerate(design_list), total=len(design_list), disable=self.disable_tqdm):
         
-        samples = torch.tensor(dataframe['data'][:N, design_i])
+        if preload_samples:
+            samples = preloaded_samples[:, design_i]
+        else:
+            samples = torch.tensor(dataframe['data'][:N, design_i])
                 
         pyro.set_rng_seed(0)
         

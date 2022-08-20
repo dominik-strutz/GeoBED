@@ -20,7 +20,7 @@ def var_marg(self, dataframe, design_list, var_guide,
              stoch_sampling=True, n_stochastic=None,
              optim=None, scheduler=None,
              batched=False, guide_args={},
-             return_dict=False,
+             return_dict=False, preload_samples=True,
              **kwargs):
 
     #TODO: check the influence of using the same samples for training and evaluating
@@ -51,11 +51,20 @@ def var_marg(self, dataframe, design_list, var_guide,
         scheduler_n_iterations = scheduler['n_iterations']
         
     #TODO: Implement way to do eig optimization batched (easily done for gmm, not so much for nf)
+    
+    if preload_samples:
+        pre_samples = dataframe['data'][:n_final_samples]
+    
     if batched:
-            
-        samples = np.concatenate([dataframe['data'][:n_final_samples, design_i][:, None, :] for design_i in design_list], axis=1)            
+        
+        print('loading samples ...')
+        if preload_samples:
+            samples = np.concatenate([pre_samples[:n_final_samples, design_i][:, None, :] for design_i in design_list], axis=1)            
+        else:
+            samples = np.concatenate([dataframe['data'][:n_final_samples, design_i][:, None, :] for design_i in design_list], axis=1)            
         samples = torch.tensor(samples)
-                
+        print('finished loading samples ...')
+
         # set random set so each design point has same noise realisation
         # pyro.set_rng_seed(0)
         
@@ -361,7 +370,8 @@ class GaussianMixtureModel_batched(torch.nn.Module):
         self.mix = dist.Categorical(logits=self.mix_param)
         
         # ensure positive-definiteness (bmm because batch of matrix is used)
-        cov = torch.matmul(self.cov_param, torch.transpose(self.cov_param, -1, -2))
+        cov = torch.matmul(self.cov_param, torch.transpose(self.cov_param, -1, -2)) + \
+            torch.diag_embed(torch.ones(self.desing_dim, self.K, self.data_dim)) * 1e-5
                 
         self.comp = dist.MultivariateNormal(self.mean_param, covariance_matrix=cov)
         

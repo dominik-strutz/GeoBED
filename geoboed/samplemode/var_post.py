@@ -22,7 +22,7 @@ def var_post(self, dataframe, design_list,
              stoch_sampling=True, n_stochastic=None,
              optim=None, scheduler=None,
              batched=False, guide_args={},
-             return_dict=False,
+             return_dict=False, preload_samples=True,
              **kwargs):
     
     n_samples       = n_samples       if not n_samples       == -1 else self.n_prior
@@ -63,6 +63,9 @@ def var_post(self, dataframe, design_list,
     except AttributeError:
         raise NotImplementedError('Monte Carlo estimate of prior entropy not yet implemented')
     
+    
+    model_space = torch.tensor(dataframe['prior'][:n_samples]).float()
+
     
     if batched:
         raise NotImplementedError()
@@ -142,20 +145,23 @@ def var_post(self, dataframe, design_list,
         #     plt.plot(losses) 
     
     else:
-        
-        model_space = torch.tensor(dataframe['prior'][:n_samples])
-
         eig_list = []
         if return_dict:
             guide_collection = []
         losses_collection = []
 
+        if preload_samples:
+            pre_samples = dataframe['data'][:n_final_samples]
+
         for i, design_i in tqdm(enumerate(design_list), total=len(design_list), disable=self.disable_tqdm):
 
             pyro.set_rng_seed(0)
-   
-            samples = torch.tensor(dataframe['data'][ :n_final_samples, design_i])
 
+            if preload_samples:
+                samples = torch.tensor(pre_samples[ :n_final_samples, design_i]).float()
+            else:
+                samples = torch.tensor(dataframe['data'][ :n_final_samples, design_i]).float()
+                
             guide = guide_template(samples, model_space, **guide_args)
             optimizer = optimizer_constructor(guide)
             scheduler = scheduler_constructor(optimizer)
