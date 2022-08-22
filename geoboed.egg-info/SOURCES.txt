@@ -1,0 +1,7 @@
+README.md
+setup.py
+geoboed/__init__.py
+geoboed.egg-info/PKG-INFO
+geoboed.egg-info/SOURCES.txt
+geoboed.egg-info/dependency_links.txt
+geoboed.egg-info/top_level.txt

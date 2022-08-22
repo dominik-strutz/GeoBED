@@ -1,3 +1,4 @@
+from pyexpat import model
 import random
 
 import torch
@@ -19,6 +20,7 @@ def var_post(self, dataframe, design_list,
              optim=None, scheduler=None,
              batched=False, guide_args={},
              return_dict=False, preload_samples=True,
+             interrogation_mapping=None,
              **kwargs):
     
     n_samples       = n_samples       if not n_samples       == -1 else self.n_prior
@@ -158,8 +160,13 @@ def var_post(self, dataframe, design_list,
                 samples = torch.tensor(pre_samples[ :n_final_samples, design_i]).float()
             else:
                 samples = torch.tensor(dataframe['data'][ :n_final_samples, design_i]).float()
-                        
-            guide = guide_template(samples, model_space, **guide_args)
+            
+            if interrogation_mapping is not None:
+                model_space_samples = interrogation_mapping(model_space)
+            else:
+                model_space_samples = model_space[:]
+            
+            guide = guide_template(samples, model_space_samples, **guide_args)
             optimizer = optimizer_constructor(guide)
             scheduler = scheduler_constructor(optimizer)
             
@@ -173,10 +180,10 @@ def var_post(self, dataframe, design_list,
                     
                     random_indices = random.sample(range(n_samples), n_stochastic)                    
                     x = self.data_likelihood(samples[random_indices]).sample([1, ]).flatten(start_dim=0, end_dim=1)
-                    ln_p_x2_given_x1 = guide.log_prob(model_space[random_indices], x)
+                    ln_p_x2_given_x1 = guide.log_prob(model_space_samples[random_indices], x)
                 else:
                     x = self.data_likelihood(samples[:n_samples]).sample([1, ]).flatten(start_dim=0, end_dim=1)    
-                    ln_p_x2_given_x1 = guide.log_prob(model_space, x)
+                    ln_p_x2_given_x1 = guide.log_prob(model_space_samples, x)
                 
                 loss = -(ln_p_x2_given_x1).mean()
                 loss.backward() 
@@ -200,7 +207,7 @@ def var_post(self, dataframe, design_list,
             samples = likeliehood.sample([1, ]).flatten(start_dim=0, end_dim=1)
             
             #TODO: should be the same as loss without minus sign use directly for faster evaluations
-            marginal_lp = guide.log_prob(model_space, samples)
+            marginal_lp = guide.log_prob(model_space_samples, samples)
             
             post_samples = guide.sample(samples)
             
