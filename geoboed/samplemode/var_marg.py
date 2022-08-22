@@ -79,7 +79,7 @@ def var_marg(self, dataframe, design_list, var_guide,
         
         losses = []
         
-        for step in (pbar := tqdm(
+        for step in (tqdm(
             range(n_steps), total=n_steps, disable=self.disable_tqdm, leave=True)):
             
             optimizer.zero_grad()
@@ -100,8 +100,8 @@ def var_marg(self, dataframe, design_list, var_guide,
             if return_dict:
                 losses.append(loss.detach().tolist())
             
-            if not self.disable_tqdm:
-                pbar.set_description(f"avg. Loss: {loss.sum().detach().item():.2e}")
+            # if not self.disable_tqdm:
+            #     pbar.set_description(f"avg. Loss: {loss.sum().detach().item():.2e}")
 
         #TODO: implement option to not reuse samples for final samples  
 
