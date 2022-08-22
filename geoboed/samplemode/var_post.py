@@ -155,11 +155,12 @@ def var_post(self, dataframe, design_list,
         for design_i in tqdm(design_list, total=len(design_list), disable=self.disable_tqdm):
 
             pyro.set_rng_seed(0)
-            
+                        
+            # .tolist necessary to keep data dimension even for one reciver designs
             if preload_samples:
-                samples = torch.tensor(pre_samples[ :n_final_samples, design_i]).float()
+                samples = torch.tensor(pre_samples[ :n_final_samples, design_i.tolist()]).float()
             else:
-                samples = torch.tensor(dataframe['data'][ :n_final_samples, design_i]).float()
+                samples = torch.tensor(dataframe['data'][ :n_final_samples, design_i.tolist()]).float()
             
             if interrogation_mapping is not None:
                 model_space_samples = interrogation_mapping(model_space)
@@ -172,14 +173,15 @@ def var_post(self, dataframe, design_list,
             
             losses = []
 
-            for step in (pbar := tqdm(range(n_steps), total=n_steps, disable=True, leave=False)):
+            for step in (tqdm(range(n_steps), total=n_steps, disable=True, leave=False)):
                 
                 optimizer.zero_grad()
                 
                 if stoch_sampling:
-                    
+                                        
                     random_indices = random.sample(range(n_samples), n_stochastic)                    
                     x = self.data_likelihood(samples[random_indices]).sample([1, ]).flatten(start_dim=0, end_dim=1)
+                    
                     ln_p_x2_given_x1 = guide.log_prob(model_space_samples[random_indices], x)
                 else:
                     x = self.data_likelihood(samples[:n_samples]).sample([1, ]).flatten(start_dim=0, end_dim=1)    
@@ -280,10 +282,6 @@ class MDN_guide(torch.nn.Module):
         x -= self.ds_means
         x /= self.ds_stds        
         
-        # print(self.ds_means)
-        # print(self.ds_stds)
-        # print(x)
-
         z_h = torch.tanh(self.z_1(x))
         z_h = torch.tanh(self.z_2(z_h))
         # z_h = torch.tanh(self.z_3(z_h))
