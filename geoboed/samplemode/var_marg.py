@@ -164,7 +164,7 @@ def var_marg(self, dataframe, design_list, var_guide,
 
             losses = []
 
-            for step in (pbar := tqdm(range(n_steps), total=n_steps, disable=True, leave=False)):
+            for step in (tqdm(range(n_steps), total=n_steps, disable=True, leave=False)):
                 
                 optimizer.zero_grad()
 
@@ -185,7 +185,7 @@ def var_marg(self, dataframe, design_list, var_guide,
                         scheduler.step()
                 
                 losses.append(loss.detach().item())
-                pbar.set_description(f"Loss: {loss.detach().item():.2e}")
+                # pbar.set_description(f"Loss: {loss.detach().item():.2e}")
             
                 #TODO: some sort of quality control for convergence
                                 
