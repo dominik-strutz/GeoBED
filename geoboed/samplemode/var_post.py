@@ -1,19 +1,15 @@
+import random
+
 import torch
 from torch import nn
 
 import numpy as np
 import pyro
 from tqdm import tqdm
-import random
-
-import matplotlib.pyplot as plt
 
 import pyro.distributions as dist
-from torch.distributions import constraints
 import pyro.distributions.transforms as transforms
 import torch.distributions.transforms as torch_transforms
-
-import pyro
 
 
 def var_post(self, dataframe, design_list,
@@ -53,6 +49,8 @@ def var_post(self, dataframe, design_list,
     
     if var_guide == 'mdn':
         guide_template = MDN_guide
+    elif var_guide == 'mdn_cov':
+        guide_template = MDN_guide_cov
     elif var_guide == 'cond_spline_nf':
         guide_template = Cond_Spline_NF
     elif type(var_guide) == str:
@@ -65,7 +63,6 @@ def var_post(self, dataframe, design_list,
     
     
     model_space = torch.tensor(dataframe['prior'][:n_samples]).float()
-
     
     if batched:
         raise NotImplementedError()
@@ -153,15 +150,15 @@ def var_post(self, dataframe, design_list,
         if preload_samples:
             pre_samples = dataframe['data'][:n_final_samples]
 
-        for i, design_i in tqdm(enumerate(design_list), total=len(design_list), disable=self.disable_tqdm):
+        for design_i in tqdm(design_list, total=len(design_list), disable=self.disable_tqdm):
 
             pyro.set_rng_seed(0)
-
+            
             if preload_samples:
                 samples = torch.tensor(pre_samples[ :n_final_samples, design_i]).float()
             else:
                 samples = torch.tensor(dataframe['data'][ :n_final_samples, design_i]).float()
-                
+                        
             guide = guide_template(samples, model_space, **guide_args)
             optimizer = optimizer_constructor(guide)
             scheduler = scheduler_constructor(optimizer)
@@ -173,7 +170,8 @@ def var_post(self, dataframe, design_list,
                 optimizer.zero_grad()
                 
                 if stoch_sampling:
-                    random_indices = random.sample(range(n_samples), n_stochastic)
+                    
+                    random_indices = random.sample(range(n_samples), n_stochastic)                    
                     x = self.data_likelihood(samples[random_indices]).sample([1, ]).flatten(start_dim=0, end_dim=1)
                     ln_p_x2_given_x1 = guide.log_prob(model_space[random_indices], x)
                 else:
@@ -196,12 +194,24 @@ def var_post(self, dataframe, design_list,
             losses_collection.append(losses)
             if return_dict:
                 guide_collection.append(guide)
-                        
+            
             likeliehood = self.data_likelihood(samples, design_i)
+                        
             samples = likeliehood.sample([1, ]).flatten(start_dim=0, end_dim=1)
             
             #TODO: should be the same as loss without minus sign use directly for faster evaluations
             marginal_lp = guide.log_prob(model_space, samples)
+            
+            post_samples = guide.sample(samples)
+            
+            # import matplotlib.pyplot as plt
+            # plt.scatter(-post_samples[:, 0], post_samples[:, 1])
+            # plt.show()
+            
+            # print(guide.sample(samples).shape)
+            # print(guide.get_mean(samples).shape)
+
+            # print(guide.sample(samples))
             
             eig = prior_ent - (-marginal_lp).sum(0) / n_samples 
             
@@ -245,7 +255,7 @@ class MDN_guide(torch.nn.Module):
         
         self.ms_means = model_sample.mean(dim=0)
         self.ms_stds  = model_sample.std(dim=0)
-        
+                
         self.z_1 = nn.Linear(self.design_dim , self.nn_N)
         self.z_2 = nn.Linear(self.nn_N, self.nn_N)
         # self.z_3 = nn.Linear(self.nn_N, self.nn_N)
@@ -256,14 +266,18 @@ class MDN_guide(torch.nn.Module):
         
     def evaluate(self, data_samples):
         
-        batch_dim = data_samples.shape[:-1]
-        
+        batch_dim = data_samples.shape[0]
+               
         x = data_samples.clone()
                 
         x -= self.ds_means
         x /= self.ds_stds        
+        
+        # print(self.ds_means)
+        # print(self.ds_stds)
+        # print(x)
 
-        z_h = torch.tanh(self.z_1(data_samples))
+        z_h = torch.tanh(self.z_1(x))
         z_h = torch.tanh(self.z_2(z_h))
         # z_h = torch.tanh(self.z_3(z_h))
         
@@ -271,26 +285,121 @@ class MDN_guide(torch.nn.Module):
         mu    = self.h_mu(z_h)
         sigma = torch.nn.functional.elu(self.h_sigma(z_h)) + 1.0 + 1e-15
 
-        alpha = alpha.reshape((*batch_dim, self.K))
-        mu    = mu.reshape((*batch_dim, self.K, self.model_dim))
-        sigma = sigma.reshape((*batch_dim, self.K, self.model_dim))
+        alpha = alpha.reshape((batch_dim, self.K))
+        mu    = mu.reshape((batch_dim, self.K, self.model_dim))
+        sigma = sigma.reshape((batch_dim, self.K, self.model_dim))
                 
         mix = dist.Categorical(logits=alpha)
         comp = dist.Normal(mu , sigma).to_event(1)
         dit = dist.MixtureSameFamily(mix, comp)
         
         normalizing = torch_transforms.AffineTransform(
-            self.ms_means, self.ms_stds)
-        
+            self.ms_means, self.ms_stds, event_dim=1)
+                
         dit = dist.TransformedDistribution(dit, normalizing)
-        
+                
         return alpha, mu, sigma, dit
         
-    def log_prob(self, model_sample, data_samples):
-        
+    def log_prob(self, model_samples, data_samples):
+
         _, _, _, dit = self.evaluate(data_samples)           
+        
                 
-        return dit.log_prob(model_sample)
+        return dit.log_prob(model_samples)
+    
+    def clear_cache(self):
+        pass
+    
+    def sample(self, data_samples):
+        #TODO make sampling a bit more transparent with how many samples should be drawn from each posterior individually
+
+        _, _, _, dit = self.evaluate(data_samples)
+        
+        sample = dit.sample([1,]).flatten(start_dim=0, end_dim=1)
+        return sample
+    
+    def get_mix(self, data_samples):
+        alpha, _, _, _ = self.evaluate(data_samples)
+        return alpha
+    
+    def get_mean(self, data_samples):
+        _, mu, _, _ = self.evaluate(data_samples)
+        return mu
+    
+    def get_sigma(self, data_samples):
+        _, _, sigma, _ = self.evaluate(data_samples)
+        return sigma
+    
+    
+    
+class MDN_guide_cov(torch.nn.Module):
+    
+    def __init__(self, data_samples, model_sample, K=3):
+        super(MDN_guide_cov, self).__init__()
+        
+        self.design_dim = data_samples.shape[-1]
+        self.model_dim = model_sample.shape[-1]
+        self.K = K
+        
+        self.nn_N = 128
+
+        self.ds_means = data_samples.mean(dim=0)
+        self.ds_stds  = data_samples.std(dim=0)
+        
+        self.ms_means = model_sample.mean(dim=0)
+        self.ms_stds  = model_sample.std(dim=0)
+                
+        self.z_1 = nn.Linear(self.design_dim , self.nn_N)
+        self.z_2 = nn.Linear(self.nn_N, self.nn_N)
+        # self.z_3 = nn.Linear(self.nn_N, self.nn_N)
+
+        self.h_alpha = nn.Linear(self.nn_N, self.K)
+        self.h_mu    = nn.Linear(self.nn_N, self.K*self.model_dim)
+        self.h_cov   = nn.Linear(self.nn_N, self.K*self.model_dim*self.model_dim)
+        
+    def evaluate(self, data_samples):
+        
+        batch_dim = data_samples.shape[0]
+               
+        x = data_samples.clone()
+                
+        x -= self.ds_means
+        x /= self.ds_stds        
+
+        z_h = torch.tanh(self.z_1(x))
+        z_h = torch.tanh(self.z_2(z_h))
+        # z_h = torch.tanh(self.z_3(z_h))
+        
+        alpha = nn.functional.log_softmax(self.h_alpha(z_h), -1)
+        mu    = self.h_mu(z_h)
+        cov   = torch.nn.functional.elu(self.h_cov(z_h)) + 1.0 + 1e-15
+
+        alpha = alpha.reshape((batch_dim, self.K))
+        mu    = mu.reshape((batch_dim, self.K, self.model_dim))
+        cov   = cov.reshape((batch_dim, self.K, self.model_dim, self.model_dim))
+                
+        mix = dist.Categorical(logits=alpha)
+        
+        # ensure positive-definiteness (bmm because batch of matrix is used)
+        cov = torch.matmul(cov, torch.transpose(cov, -1, -2)) + \
+            torch.diag_embed(torch.ones(batch_dim, self.K, self.model_dim)) * 1e-5
+        comp = dist.MultivariateNormal(mu, covariance_matrix=cov)
+        
+        dit = dist.MixtureSameFamily(mix, comp)
+        
+        normalizing = torch_transforms.AffineTransform(
+            self.ms_means, self.ms_stds, event_dim=1)
+                
+        dit = dist.TransformedDistribution(dit, normalizing)
+        
+        return alpha, mu, cov, dit
+        
+    def log_prob(self, model_samples, data_samples):
+
+        _, _, _, dit = self.evaluate(data_samples)           
+        
+                
+        return dit.log_prob(model_samples)
     
     def clear_cache(self):
         pass
@@ -454,7 +563,7 @@ class Cond_Spline_NF(torch.nn.Module):
         x -= self.ds_means
         x /= self.ds_stds  
         
-        dit = self.dist_x2_given_x1.condition(data_samples)       
+        dit = self.dist_x2_given_x1.condition(x)       
         
         return dit.log_prob(model_space)
 

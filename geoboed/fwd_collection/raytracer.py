@@ -35,7 +35,7 @@ class TTHelper():
         
         rec_list = np.vstack( [rec_list[:, 0], np.zeros_like(rec_list[:, 0]), rec_list[:, 1]] ).T
 
-        tt_list = solver.traveltime.resample(rec_list.astype('double'))
+        tt_list = solver.traveltime.resample(rec_list.astype('float'))
         
         return tt_list
 

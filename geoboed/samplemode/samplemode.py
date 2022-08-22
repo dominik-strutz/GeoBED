@@ -1,9 +1,7 @@
 import math
 
 import numpy as np
-import h5py
 import torch
-import matplotlib.pyplot as plt
 from tqdm import tqdm
 
 from .dn import *
@@ -133,7 +131,7 @@ class BOED_sample():
     def get_eig(self, design_list, boed_method, boed_method_kwargs={},
                 return_dict=True,
                 **kwargs):
-        
+                
         if boed_method in ['dn', 'nmc', 'var_marg', 'var_post']:
             self.boed_method = boed_method
         else:

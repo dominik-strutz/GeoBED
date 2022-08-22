@@ -34,7 +34,7 @@ def nmc(self, dataframe, design_list, N, M, reuse_N=False, return_dict=False, pr
             pre_samples = torch.tensor(dataframe['data'][:N])
         else:
             pre_samples = torch.tensor(dataframe['data'][:N*M])
-        
+    
     for i, design_i in tqdm(enumerate(design_list), total=len(design_list), disable=self.disable_tqdm):
         
         pyro.set_rng_seed(0)

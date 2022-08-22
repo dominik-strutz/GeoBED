@@ -1,18 +1,15 @@
+import random
 
 import numpy as np
 import torch
 import pyro
-from tqdm import tqdm
-import random
 
-import matplotlib.pyplot as plt
+from tqdm import tqdm
 
 import pyro.distributions as dist
 from torch.distributions import constraints
 import pyro.distributions.transforms as transforms
 import torch.distributions.transforms as torch_transforms
-
-import pyro
 
 
 def var_marg(self, dataframe, design_list, var_guide,
@@ -249,7 +246,8 @@ class Spline_NF(torch.nn.Module):
     def parameters(self):
         return self.spline_transform.parameters()
 
-    def log_prob(self, x):
+    def log_prob(self, data_samples):
+        x = data_samples.clone()
         return self.guide.log_prob(x)
     
     def clear_cache(self):
@@ -287,7 +285,8 @@ class Coupling_Spline_NF(torch.nn.Module):
             [self.cpl_spline_transform_1, self.cpl_spline_transform_2]
             ).parameters()
 
-    def log_prob(self, x):
+    def log_prob(self, data_samples):
+        x = data_samples.clone()
         return self.guide.log_prob(x)
     
     def clear_cache(self):
@@ -315,8 +314,9 @@ class Coupling_Spline_NF_batched(torch.nn.Module):
             [Coupling_Spline_NF(data=data[:, d_i]) for d_i in range(self.desing_dim)]
             )        
         
-    def log_prob(self, x):
-
+    def log_prob(self, data_samples):
+        
+        x = data_samples.clone()
         # print(self.flows[:2])
 
         log_probs = torch.empty((x.shape[0], self.desing_dim))
@@ -365,7 +365,9 @@ class GaussianMixtureModel_batched(torch.nn.Module):
         self.mean_param = torch.nn.Parameter(mean_param)
         self.cov_param  = torch.nn.Parameter(cov_param)
     
-    def log_prob(self, x):
+    def log_prob(self, data_samples):
+                
+        x = data_samples.clone()
 
         self.mix = dist.Categorical(logits=self.mix_param)
         

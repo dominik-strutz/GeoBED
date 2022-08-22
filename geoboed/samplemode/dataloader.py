@@ -1,6 +1,4 @@
-import h5py
 import numpy as np
-
 
 class dataloader():
     def __init__(self, filename):
@@ -8,6 +6,7 @@ class dataloader():
     def __enter__(self):
         #ttysetattr etc goes here before opening and returning the file object        
         if self.filename.endswith('.hdf5'):
+            import h5py
             self.fd = h5py.File((self.filename), "r")
         elif self.filename.endswith('.npz'):
             self.npz = open(self.filename, 'rb')

@@ -2,7 +2,6 @@ import math
 
 from tqdm import tqdm
 import torch
-import pyro
 import numpy as np
 
 def dn(self, dataframe, design_list, N=-1, return_dict=False, preload_samples=True):
@@ -29,7 +28,8 @@ def dn(self, dataframe, design_list, N=-1, return_dict=False, preload_samples=Tr
         else:
             samples = torch.tensor(dataframe['data'][:N, design_i])
                 
-        pyro.set_rng_seed(0)
+        # pyro.set_rng_seed(0)
+        torch.manual_seed(0)
         
         samples = self.data_likelihood(samples).sample([1, ]).flatten(start_dim=0, end_dim=1)
                         
