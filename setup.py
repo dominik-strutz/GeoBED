@@ -1,17 +1,17 @@
 from setuptools import setup
 
-setup(name='geobed',
+setup(name='geoboed',
       version='0.1',
       description='GeoBED',
       author='Dominik Strutz',
       author_email='dominik.strutz@ed.ac.uk',
       license='MIT',
-      packages=['geobed'],
+      packages=['geoboed'],
       # package_dir={'geobed'},
       # install_requires=[
       #       'numpy',
       #       'torch',
-      #       'pyro',
+      #       'pyro-ppl',
       #       'tqdm',
       # ],
       # extras_require={
