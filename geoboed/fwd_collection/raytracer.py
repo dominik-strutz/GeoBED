@@ -1,12 +1,14 @@
 import numpy as np
 
+try:
+    import matplotlib.pyplot as plt
+    import pykonal
+except ImportError:
+    pass
+
 class TTHelper():
     
     def __init__(self, coord_sys="cartesian") -> None:
-        
-        import matplotlib.pyplot as plt
-        import pykonal
-        
         self.coord_sys = coord_sys
         self.model_set = True
 
