@@ -25,10 +25,6 @@ class BOED_sample():
         
         self.filename = filename
         self.disable_tqdm = disable_tqdm 
-
-        #TODO: implement as seperate method like likeliehood
-        #Dont sample from this!!!! 
-        self.model_prior = model_prior
         
         if filename.endswith('.hdf5'):
             self.filetype = 'hdf5'

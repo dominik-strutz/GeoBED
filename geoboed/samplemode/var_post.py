@@ -17,6 +17,7 @@ def var_post(self, dataframe, design_list,
              var_guide, n_steps,
              n_samples, n_final_samples=-1,
              stoch_sampling=True, n_stochastic=None,
+             model_prior=None,
              optim=None, scheduler=None,
              batched=False, guide_args={},
              return_dict=False, preload_samples=True,
@@ -58,11 +59,14 @@ def var_post(self, dataframe, design_list,
     elif type(var_guide) == str:
         raise NotImplementedError('Guide not implemented')
 
-    try:
-        prior_ent = self.model_prior.entropy()
-    except AttributeError:
+    if model_prior is not None:
+        try:
+            prior_ent = model_prior.entropy()
+        except AttributeError:
+            raise NotImplementedError('Monte Carlo estimate of prior entropy not yet implemented')
+    else:
         raise NotImplementedError('Monte Carlo estimate of prior entropy not yet implemented')
-    
+
     
     model_space = torch.tensor(dataframe['prior'][:n_samples]).float()
     
