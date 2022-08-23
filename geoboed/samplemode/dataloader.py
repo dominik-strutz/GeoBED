@@ -10,7 +10,7 @@ class dataloader():
             self.fd = h5py.File((self.filename), "r")
         elif self.filename.endswith('.npz'):
             self.npz = open(self.filename, 'rb')
-            self.fd = np.load(self.npz)
+            self.fd = np.load(self.npz, allow_pickle=True)
         else:
             raise ValueError('Filetype not supported')
         
