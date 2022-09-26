@@ -33,9 +33,9 @@ def nmc(self, dataframe, design_list, N, M, reuse_N=False, evidence_only=False,
     
     if preload_samples:
         if reuse_N:
-            pre_samples = torch.tensor(dataframe['data'][:N])
+            pre_samples = torch.tensor(np.apply_along_axis(self.design_restriction, 1, dataframe['data'][:N]))
         else:
-            pre_samples = torch.tensor(dataframe['data'][:N*M])
+            pre_samples = torch.tensor(np.apply_along_axis(self.design_restriction, 1, dataframe['data'][:N*M]))
     
     for i, design_i in tqdm(enumerate(design_list), total=len(design_list), disable=disable_tqdm):
         
@@ -46,7 +46,7 @@ def nmc(self, dataframe, design_list, N, M, reuse_N=False, evidence_only=False,
         if preload_samples:
             samples = pre_samples[:N, design_i]
         else:
-            samples = torch.tensor(dataframe['data'][:N, design_i])
+            samples = torch.tensor(np.apply_along_axis(self.design_restriction, 1, dataframe['data'][:N])[design_i])
 
         likelihoods = self.data_likelihood(samples, self.get_designs()[design_i])
                 
@@ -57,7 +57,7 @@ def nmc(self, dataframe, design_list, N, M, reuse_N=False, evidence_only=False,
             if preload_samples:
                 NM_samples = pre_samples[:N*M, design_i]
             else:
-                NM_samples = torch.tensor(dataframe['data'][:N*M, design_i])
+                NM_samples = torch.tensor(np.apply_along_axis(self.design_restriction, 1, dataframe['data'][:N*M])[design_i])
             NM_likelihoods = self.data_likelihood(NM_samples, self.get_designs()[design_i])
             NM_samples = NM_likelihoods.sample([1, ]).reshape(M, N, len(design_i))
             N_samples = NM_samples[0]

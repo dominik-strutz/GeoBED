@@ -20,14 +20,14 @@ def dn(self, dataframe, design_list, N=-1, return_dict=False, preload_samples=Tr
     eig_list = []
     
     if preload_samples:
-        preloaded_samples = torch.tensor(dataframe['data'][:N])    
+        preloaded_samples = torch.tensor(np.apply_along_axis(self.design_restriction, 1, dataframe['data'][:N]))
     
     for i, design_i in tqdm(enumerate(design_list), total=len(design_list), disable=disable_tqdm):
         
         if preload_samples:
             samples = preloaded_samples[:, design_i]
         else:
-            samples = torch.tensor(dataframe['data'][:N, design_i])
+            samples = torch.tensor(np.apply_along_axis(self.design_restriction, 1, dataframe['data'][:N])[design_i])
                 
         if set_rseed:
             pyro.set_rng_seed(0)

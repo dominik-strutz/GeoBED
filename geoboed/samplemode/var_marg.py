@@ -13,35 +13,24 @@ import torch.distributions.transforms as torch_transforms
 
 
 def var_marg(self, dataframe, design_list, var_guide,
-             n_steps, n_samples, n_final_samples=-1,
-             stoch_sampling=True, n_stochastic=None,
+             n_steps, N, M=-1, n_stochastic=None,
              optim=None, scheduler=None,
              batched=False, guide_args={},
              return_dict=False, preload_samples=True,
              disable_tqdm=False, set_rseed=True, **kwargs):
 
-    # for reproducibility
-    if set_rseed:
-        pyro.set_rng_seed(0)
-        torch.manual_seed(0)
 
-    #TODO: check the influence of using the same samples for training and evaluating
-    #TODO: sometimes gradient descent fails due to wrong covarianxce matrix... fix that 
-    
     # Some checks to make sure all inputs are correct
-    n_samples       = n_samples       if not n_samples       == -1 else self.n_prior
-    n_final_samples = n_final_samples if not n_final_samples == -1 else self.n_prior
+    if N + M > self.n_prior: raise ValueError(
+        'Not enough prior samples, N+M has to be smaller than n_prior!')
     
-    if n_samples  > self.n_prior: raise ValueError(
-        'Not enough prior samples, choose different n_samples!')
-    if n_final_samples > self.n_prior: raise ValueError(
-        'Not enough prior samples, choose different n_final_samples!')
-    if stoch_sampling:
-        if n_stochastic >= n_samples: raise ValueError(
+    # set M properly if all samples should be used (-1)
+    M = M if not M == -1 else self.n_prior - N
+        
+    if n_stochastic is  not None:
+        if n_stochastic >= N: raise ValueError(
             'No stochastic sampling possible when all samples are used')
-    
-    n_max = max(n_samples, n_final_samples)
-    
+        
     # set optimizer or fall back to default if none is set
     if optim is None:
         def optimizer_constructor(guide):
@@ -53,14 +42,11 @@ def var_marg(self, dataframe, design_list, var_guide,
     if scheduler is not None:
         scheduler_constructor  = scheduler['scheduler']
         scheduler_n_iterations = scheduler['n_iterations']
-        
-    #TODO: Implement way to do eig optimization batched (!!NOT easily done for gmm)
-    
+            
     if preload_samples:
-        pre_samples = dataframe['data'][:n_max]
+        pre_samples = torch.tensor(np.apply_along_axis(self.design_restriction, 1, dataframe['data'][:N+M]))
     
     if batched:
-        
         raise NotImplementedError('Batched calculations not implemented yet.')
         
     else:        
@@ -76,19 +62,19 @@ def var_marg(self, dataframe, design_list, var_guide,
                 # set random set so each design point has same noise realisation
                 pyro.set_rng_seed(0)
                 torch.manual_seed(0)
+                random.seed(0)
             
             if preload_samples:
                 # tolist necessary as as single elemet tensor will return an int instead of a tensor
-                samples = pre_samples[:n_max, design_i.tolist()][:, None, :]            
+                # None necessary to make make sure the tnesor is in the right shape
+                samples = pre_samples[:N+M, design_i.tolist()][:, None, :]            
             else:
-                samples = dataframe['data'][:n_max, design_i.tolist()][:, None, :]       
-            
-            samples = torch.tensor(samples)
-            
+                samples = torch.tensor(np.apply_along_axis(self.design_restriction, 1, dataframe['data'][:N+M]))[design_i.tolist()][:, None, :]       
+                        
             if var_guide == 'cpl_spline_nf':
-                guide = Coupling_Spline_NF(samples, guide_args)
+                guide = Coupling_Spline_NF(samples[:], guide_args)
             elif var_guide == 'gmm':
-                guide = GaussianMixtureModel(samples, guide_args)
+                guide = GaussianMixtureModel(samples[:], guide_args)
             elif type(var_guide) == str:
                 raise NotImplementedError('Guide not implemented')
             
@@ -102,12 +88,12 @@ def var_marg(self, dataframe, design_list, var_guide,
                 
                 optimizer.zero_grad()
 
-                if stoch_sampling:
-                    random_indices = random.sample(range(n_samples), n_stochastic)
+                if n_stochastic is not None:
+                    random_indices = random.sample(range(N), n_stochastic)
                     x = self.data_likelihood(samples[random_indices], self.get_designs()[design_i]).sample([1, ]).flatten(start_dim=0, end_dim=1)
                     
                 else:
-                    x = self.data_likelihood(samples[:n_samples], self.get_designs()[design_i]).sample([1, ]).flatten(start_dim=0, end_dim=1)                
+                    x = self.data_likelihood(samples[:N], self.get_designs()[design_i]).sample([1, ]).flatten(start_dim=0, end_dim=1)                
                             
                 loss = -guide.log_prob(x).mean()
                 loss.backward()
@@ -123,29 +109,31 @@ def var_marg(self, dataframe, design_list, var_guide,
             
                 #TODO: some sort of quality control for convergence
                                 
-            # TODO: Implement way to not reuse samples
-            likeliehood = self.data_likelihood(samples[:n_final_samples], self.get_designs()[design_i])
+            # TODO: Implement way to not reuse samples\
+            likeliehood = self.data_likelihood(samples[N:N+M], self.get_designs()[design_i])
             samples = likeliehood.sample([1, ]).flatten(start_dim=0, end_dim=1)
 
             marginal_lp = guide.log_prob(samples)     
             conditional_lp = likeliehood.log_prob(samples)
-                         
-            eig = (conditional_lp - marginal_lp).sum(0) / n_final_samples 
+            guide.clear_cache()
+
+            eig = (conditional_lp - marginal_lp).sum(0) / M 
             
             eig_list.append(eig.detach().item())
                          
             losses_collection.append(losses)
             if return_dict:
-                guide_collection.append(guide)  
+                guide_collection.append(guide)
+                
+            del guide
                 
         if return_dict:
             output_dict = {
                 'var_guide_name':  var_guide,
                 'var_guide':       guide_collection,
                 'n_steps':         n_steps,
-                'n_samples':       n_samples,
-                'n_final_samples': n_final_samples,
-                'stoch_sampling':  stoch_sampling,
+                'N':               N,
+                'M':               M,
                 'n_stochastic':    n_stochastic,
                 'optim':           optim,
                 'scheduler':       scheduler,
@@ -229,17 +217,20 @@ class GaussianMixtureModel(torch.nn.Module):
     
     def log_prob(self, data_samples):
         
+        # DONT remove the .clone() here. It will break the code because of the way pytorch handles gradients
         x = data_samples.clone()
 
-        self.mix = dist.Categorical(logits=self.mix_param)
+        # normalize mixture weights to ensure they sum to 1 (simplex constraint)
+        self.mix = dist.Categorical(probs=self.mix_param/self.mix_param.sum())
         
-        # ensure positive-definiteness (bmm because batch of matrix is used)
+        # ensure positive-definiteness
         cov = torch.matmul(self.cov_param, torch.transpose(self.cov_param, -1, -2)) + \
-            torch.diag_embed(torch.ones(self.K, self.data_dim)) * 1e-5        
+            torch.diag_embed(torch.ones(self.K, self.data_dim)) * 1e-8     
         
         self.comp = dist.MultivariateNormal(self.mean_param, covariance_matrix=cov)
         self.guide = dist.MixtureSameFamily(self.mix, self.comp)
-                
+        
+        # This makes allows the guide to be fitted a lot quicker 
         normalizing = torch_transforms.AffineTransform(self.ds_means, self.ds_stds, event_dim=1)
         self.guide  = dist.TransformedDistribution(self.guide , normalizing)     
 

@@ -70,7 +70,7 @@ class TTHelper():
                             zorder=0)
             
             if receivers is not None:
-                ax.scatter(receivers[:,0], receivers[:,2], marker=10, s=50, color='r', zorder=10, clip_on=False)
+                ax.scatter(receivers[:,0], receivers[:,1], marker=10, s=50, color='r', zorder=10, clip_on=False)
             
             if prior_realisations is not None:
                 
@@ -79,19 +79,28 @@ class TTHelper():
                 ax.set_ylim(max(self.z), min(self.z))
             
             if plot_rays is not None:
-                solver = pykonal.solver.PointSourceSolver(coord_sys=self.coord_sys)
-                solver.velocity.min_coords     = self.min_coords
-                solver.velocity.node_intervals = self.node_intervals
-                solver.velocity.npts           = self.npts
-                solver.velocity.values         = self.velocity_model[:, None, :]
-
-                solver.src_loc=np.array( plot_rays ).astype('double')
                 
-                solver.solve()
-            
-                for rec in receivers:
-                    ray_coords = solver.traveltime.trace_ray( np.array( rec, dtype=float))
-                    ax.plot(ray_coords[:, 0], ray_coords[:, 2], 'k', alpha=0.4)
+                # allow  single receiver or list of receivers
+                try: 
+                    iter(plot_rays[0])
+                except TypeError:
+                    print('Make List of lists')
+                    plot_rays = [plot_rays]
+                                
+                for src in plot_rays:
+                    solver = pykonal.solver.PointSourceSolver(coord_sys=self.coord_sys)
+                    solver.velocity.min_coords     = self.min_coords
+                    solver.velocity.node_intervals = self.node_intervals
+                    solver.velocity.npts           = self.npts
+                    solver.velocity.values         = self.velocity_model[:, None, :]
+
+                    solver.src_loc=np.array( (src[0], 0, src[1]) ).astype('double')
+                    
+                    solver.solve()
+                
+                    for rec in receivers:
+                        ray_coords = solver.traveltime.trace_ray( np.array( [rec[0], 0, rec[1]] , dtype=float) )
+                        ax.plot(ray_coords[:, 0], ray_coords[:, 2], 'k', alpha=0.4)
             
             ax.set_xlabel('x [km]')
             ax.set_ylabel('z [km]')

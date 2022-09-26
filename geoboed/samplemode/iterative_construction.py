@@ -19,14 +19,15 @@ def _find_optimal_design_iterative_construction(
 
     fixed_des_ind = []
     eig_array_dict = {}
+    info_dict_dict = {}
     
     # save return dict before chaninging it in case it is needed to plot losses
     try:
         return_dict = boed_method_kwargs['return_dict'] 
     except KeyError:
-        # only save retrun dict if it is given as an argument
+        # only save return dict if it is given as an argument
         return_dict = False
-    boed_method_kwargs['return_dict'] = True if plot_loss else False
+    boed_method_kwargs['return_dict'] = True if (plot_loss or return_dict) else False
         
     for i_des in range(1, design_dim+1):
         
@@ -69,7 +70,7 @@ def _find_optimal_design_iterative_construction(
             # pool.restart() #pathos cant open new pools with same state as the old ones 
             
             #TODO: make check to see of right methods are used
-            if return_dict:
+            if return_dict or boed_method_kwargs['return_dict']:
                 # initialise defaultdict of lists
                 out_dict = defaultdict(list)
                 
@@ -82,8 +83,9 @@ def _find_optimal_design_iterative_construction(
                             out_dict[k] = v
                         else:
                             out_dict[k] = np.concatenate((out_dict[k], v), axis=1)
-                    if k == 'var_guide':
+                    if k == 'var_guide' and return_dict:
                         out_dict[k].append(v)
+                        
         # use serial processing that can make use of pytorch parallelization if n_parallel = 1 
         else:
             eig_list, out_dict = self.get_eig(design_list, boed_method, boed_method_kwargs=boed_method_kwargs)
@@ -92,6 +94,8 @@ def _find_optimal_design_iterative_construction(
         fixed_des_ind.append(opteig_ind)
         
         eig_array_dict[f'{i_des}'] = eig_list
+        if return_dict:
+            info_dict_dict[f'{i_des}'] = out_dict
 
         print(f'Finished calculating EIG for design dimension {i_des}')
 
@@ -109,4 +113,7 @@ def _find_optimal_design_iterative_construction(
             
             plt.show()
         
-    return fixed_des_ind, eig_array_dict
+    if return_dict:
+        return fixed_des_ind, eig_array_dict, info_dict_dict
+    else:
+        return fixed_des_ind, eig_array_dict

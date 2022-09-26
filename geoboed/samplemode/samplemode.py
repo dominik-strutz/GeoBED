@@ -38,23 +38,22 @@ class BOED_sample():
         else:
             raise ValueError('Filetype not supported')
         
+        if not callable(design_restriction):
+            def design_restriction(x):
+                return x
+        self.design_restriction = design_restriction
+        
         with dataloader(filename) as dataframe:
             self.n_prior    = dataframe['prior'].shape[0]
             self.model_dim    = dataframe['prior'].shape[1]
             
-            if callable(design_restriction): 
-                self.n_designs   = design_restriction(dataframe['design']).shape[0]
-                self.designs = design_restriction(dataframe['design'][:])
-            else:
-                self.n_designs   = dataframe['design'].shape[0]
-                self.designs = dataframe['design'][:]
+            self.n_designs  = design_restriction(dataframe['design']).shape[0]
+            self.designs    = design_restriction(dataframe['design'][:])
                 
             self.prior  = dataframe['prior'][:]
 
-            assert self.n_prior   == dataframe['data'].shape[0], 'The number of prior samples and size of the second dimension of the data array must be the same.'
-            
-             
-            assert self.n_designs == dataframe['data'].shape[1], 'The number of design samples and size of the first dimension of the data array must be the same.'
+            assert self.n_prior   == np.apply_along_axis(self.design_restriction, 1, dataframe['data']).shape[0], 'The number of prior samples and size of the second dimension of the data array must be the same.'
+            assert self.n_designs == np.apply_along_axis(self.design_restriction, 1, dataframe['data']).shape[1], 'The number of design samples and size of the first dimension of the data array must be the same.'
 
         self.data_likelihood = data_likelihood
         self.design_independent_likelihood = design_independent_likeliehood
@@ -103,7 +102,7 @@ class BOED_sample():
             raise ValueError('Only {self.n_prior} samples are available!')
         
         with dataloader(self.filename) as dataframe:
-            samples = dataframe['data'][:n_samples]
+            samples = np.apply_along_axis(self.design_restriction, 1, dataframe['data'][:n_samples])
                     
         return samples
                         
@@ -138,7 +137,7 @@ class BOED_sample():
 
         if optimization_method == 'iterative construction':
             
-            opt_design_ind, out_dict = _find_optimal_design_iterative_construction(
+            out = _find_optimal_design_iterative_construction(
                 self, design_dim, boed_method, boed_method_kwargs, plot_loss, n_parallel=n_parallel, **optimization_method_kwargs)
             
         elif optimization_method == 'iterative decimation':
@@ -156,16 +155,17 @@ class BOED_sample():
         else:
             raise ValueError('Optimization method not supported')#TODO: Keep updated with new methods
         
-        opt_design = self.get_designs()[opt_design_ind]
-                
+        out = list(out)
+        out[0] = self.get_designs()[out[0]]
+                            
         if save_information:
             filename = f'{save_information}_oed_{optimization_method}_{boed_method}_{design_dim}'
-            np.savez(filename, **out_dict)
+            np.savez(filename, **out[1])
         
         if return_information:
-            return opt_design, out_dict
+            return out
         else:
-            return opt_design    
+            return out[0]   
     
     def get_eig(self, design_list, boed_method, boed_method_kwargs={}, disable_tqdm=False,
                 **kwargs):

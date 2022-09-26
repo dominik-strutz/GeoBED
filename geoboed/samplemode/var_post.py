@@ -15,8 +15,7 @@ import torch.distributions.transforms as torch_transforms
 
 def var_post(self, dataframe, design_list,
              var_guide, n_steps,
-             n_samples, n_final_samples=-1,
-             stoch_sampling=True, n_stochastic=None,
+             N, M=-1, n_stochastic=None,
              optim=None, scheduler=None,
              batched=False, guide_args={},
              return_dict=False, preload_samples=True,
@@ -24,20 +23,27 @@ def var_post(self, dataframe, design_list,
              disable_tqdm=False, set_rseed=True,
              model_prior=None,
              **kwargs):
+
+    # N = number of samples for the variational training
+    # M = number of samples for the Monte Carlo approximation
     
-    n_samples       = n_samples       if not n_samples       == -1 else self.n_prior
-    n_final_samples = n_final_samples if not n_final_samples == -1 else n_samples
+    # for reproducibility
+    if set_rseed:
+        pyro.set_rng_seed(0)
+        torch.manual_seed(0)
+        random.seed(0)
+
+    # Some checks to make sure all inputs are correct
+    if N + M > self.n_prior: raise ValueError(
+        'Not enough prior samples, N+M has to be smaller than n_prior!')
     
-    if n_samples  > self.n_prior: raise ValueError(
-        'Not enough prior samples, choose different n_samples!')
-    if n_final_samples > self.n_prior: raise ValueError(
-        'Not enough prior samples, choose different n_final_samples!')    
-    if stoch_sampling:
-        if n_stochastic >= n_samples: raise ValueError(
+    # set M properly if all samples should be used (-1)
+    M = M if not M == -1 else self.n_prior - N
+
+    if n_stochastic is  not None:
+        if n_stochastic >= N: raise ValueError(
             'No stochastic sampling possible when all samples are used')
-    
-    n_max = max(n_samples, n_final_samples)
-    
+        
     # set costum optimizer or fall back to default if none is set
     if optim is None:
         def optimizer_constructor(guide):
@@ -68,7 +74,7 @@ def var_post(self, dataframe, design_list,
         raise NotImplementedError('Monte Carlo estimate of prior entropy not yet implemented')
 
     
-    model_space = torch.tensor(dataframe['prior'][:n_max]).float()
+    model_space = torch.tensor(np.apply_along_axis(self.design_restriction, 1, dataframe['prior'][:N+M])).float()
     
     if batched:
         raise NotImplementedError()
@@ -80,7 +86,7 @@ def var_post(self, dataframe, design_list,
         losses_collection = []
 
         if preload_samples:
-            pre_samples = dataframe['data'][:n_max]
+            pre_samples = torch.tensor(np.apply_along_axis(self.design_restriction, 1, dataframe['data'][:N+M]))
 
         for design_i in tqdm(design_list, total=len(design_list), disable=disable_tqdm):
 
@@ -90,14 +96,14 @@ def var_post(self, dataframe, design_list,
                                     
             # .tolist necessary to keep data dimension even for one reciver designs
             if preload_samples:
-                samples = torch.tensor(pre_samples[ :n_max, design_i.tolist()]).float()
+                samples = torch.tensor(pre_samples[ :N+M, design_i.tolist()]).float()
             else:
-                samples = torch.tensor(dataframe['data'][ :n_max, design_i.tolist()]).float()
+                samples = torch.tensor(np.apply_along_axis(self.design_restriction, 1, dataframe['data'][:N+M])[design_i.tolist()]).float()
             
             if interrogation_mapping is not None:
-                model_space_samples = interrogation_mapping(model_space[:n_max])
+                model_space_samples = interrogation_mapping(model_space[:N+M])
             else:
-                model_space_samples = model_space[:n_max]
+                model_space_samples = model_space[:N+M]
             
             guide = guide_template(samples, model_space_samples, guide_args)
             optimizer = optimizer_constructor(guide)
@@ -109,14 +115,14 @@ def var_post(self, dataframe, design_list,
                 
                 optimizer.zero_grad()
                 
-                if stoch_sampling:            
-                    random_indices = random.sample(range(n_samples), n_stochastic)                    
+                if n_stochastic is not None:         
+                    random_indices = random.sample(range(N), n_stochastic)                    
                     x = self.data_likelihood(samples[random_indices], self.get_designs()[design_i]).sample([1, ]).flatten(start_dim=0, end_dim=1)
                     
                     ln_p_x2_given_x1 = guide.log_prob(model_space_samples[random_indices], x)
                 else:
-                    x = self.data_likelihood(samples[:n_samples], self.get_designs()[design_i]).sample([1, ]).flatten(start_dim=0, end_dim=1)    
-                    ln_p_x2_given_x1 = guide.log_prob(model_space_samples[:n_samples], x)
+                    x = self.data_likelihood(samples[:N], self.get_designs()[design_i]).sample([1, ]).flatten(start_dim=0, end_dim=1)    
+                    ln_p_x2_given_x1 = guide.log_prob(model_space_samples[:N], x)
                 
                 loss = -(ln_p_x2_given_x1).mean()
                 loss.backward() 
@@ -135,13 +141,13 @@ def var_post(self, dataframe, design_list,
             if return_dict:
                 guide_collection.append(guide)
             
-            likeliehood = self.data_likelihood(samples[:n_final_samples], self.get_designs()[design_i])
+            likeliehood = self.data_likelihood(samples[N:N+M], self.get_designs()[design_i])
             samples = likeliehood.sample([1, ]).flatten(start_dim=0, end_dim=1)
             
             #TODO: should be the same as loss without minus sign use directly for faster evaluations
-            marginal_lp = guide.log_prob(model_space_samples[:n_final_samples], samples)
+            marginal_lp = guide.log_prob(model_space_samples[N:N+M], samples)
                         
-            eig = prior_ent - (-marginal_lp).sum(0) / n_final_samples 
+            eig = prior_ent - (-marginal_lp).sum(0) / M 
             
             eig_list.append(eig.detach().item())                   
             
@@ -151,9 +157,8 @@ def var_post(self, dataframe, design_list,
                 'var_guide_name':  var_guide,
                 'var_guide':       guide_collection,
                 'n_steps':         n_steps,
-                'n_samples':       n_samples,
-                'n_final_samples': n_final_samples,
-                'stoch_sampling':  stoch_sampling,
+                'N':               N,
+                'M':               M,
                 'n_stochastic':    n_stochastic,
                 'optim':           optim,
                 'scheduler':       scheduler,
