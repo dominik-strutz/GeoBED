@@ -1,4 +1,3 @@
-from faulthandler import disable
 import math
 from tqdm import tqdm
 import torch
@@ -11,7 +10,6 @@ import warnings
 def nmc(self, dataframe, design_list, N, M, reuse_N=False, evidence_only=False,
         return_dict=False, preload_samples=True, set_rseed=True, disable_tqdm=False):
     """_summary_
-
     Args:
         **kwargs: _description_
     """
@@ -81,7 +79,3 @@ def nmc(self, dataframe, design_list, N, M, reuse_N=False, evidence_only=False,
         return np.array(eig_list), output_dict
     else:
         return np.array(eig_list), None
-
-        
-    
-    

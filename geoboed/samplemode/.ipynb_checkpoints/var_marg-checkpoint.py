@@ -175,7 +175,7 @@ def var_marg(self, dataframe, design_list, var_guide,
 
                     
                 # else:
-                guide = GaussianMixture(**guide_args).fit(N_samples[..., 0,  :].detach().numpy())
+                guide = BayesianGaussianMixture(**guide_args).fit(N_samples[..., 0,  :].detach().numpy())
 
                 # print(guide)
                 # print(guide.converged_)
@@ -274,7 +274,7 @@ class GaussianMixtureModel(torch.nn.Module):
         self.ds_stds  = data.std(dim=0)
 
         mix_param  = torch.rand(self.K)
-        mean_param = torch.randn(self.K, self.data_dim)
+        mean_param = torch.rand(self.K, self.data_dim)
         cov_param  = torch.diag_embed(torch.ones(self.K, self.data_dim))
         
         self.mix_param  = torch.nn.Parameter(mix_param)
@@ -291,8 +291,7 @@ class GaussianMixtureModel(torch.nn.Module):
         
         # ensure positive-definiteness
         cov = torch.matmul(self.cov_param, torch.transpose(self.cov_param, -1, -2)) 
-        cov += torch.diag_embed(torch.ones(self.K, self.data_dim)) * 1e-5
-        
+        cov += torch.diag_embed(torch.ones(self.K, self.data_dim)) * 1e-6
         
         self.comp = dist.MultivariateNormal(self.mean_param, covariance_matrix=cov)
         self.guide = dist.MixtureSameFamily(self.mix, self.comp)

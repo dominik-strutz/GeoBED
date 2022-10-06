@@ -60,21 +60,31 @@ class TTHelper():
             if ax is None:
                 fig, ax = plt.subplots(figsize=figsize, dpi=200)
             
-            im = ax.imshow(self.velocity_model.T,
+            im = ax.imshow(self.velocity_model.T/1e3,
                             extent=(min(self.x), max(self.x),
                                     max(self.z), min(self.z)),
                             origin='upper', cmap=im_cmap,
-                            vmin=vmin,
-                            vmax=vmax,
+                            vmin=vmin/1e3,
+                            vmax=vmax/1e3,
                             aspect='auto',
                             zorder=0)
             
             if receivers is not None:
-                ax.scatter(receivers[:,0], receivers[:,1], marker=10, s=50, color='r', zorder=10, clip_on=False)
+                ax.scatter(
+                    receivers[:,0], receivers[:,1],
+                    marker=10, s=100, color='r', zorder=100, clip_on=False, linewidths=0,
+                    label='receivers')
             
             if prior_realisations is not None:
                 
-                ax.scatter(prior_realisations[:,0], prior_realisations[:,1], marker='+', color='r', linewidths=1, alpha=0.1, zorder=100)
+                ax.scatter(
+                    prior_realisations[:,0], prior_realisations[:,1],
+                    marker='+', color='r', linewidths=1, alpha=0.1, zorder=100)
+                ax.scatter(
+                    [], [],
+                    marker='+', color='r', linewidths=1, alpha=0.8, zorder=100,
+                    label='prior realisations')
+                
                 ax.set_xlim(min(self.x), max(self.x))
                 ax.set_ylim(max(self.z), min(self.z))
             
@@ -84,7 +94,6 @@ class TTHelper():
                 try: 
                     iter(plot_rays[0])
                 except TypeError:
-                    print('Make List of lists')
                     plot_rays = [plot_rays]
                                 
                 for src in plot_rays:
@@ -101,9 +110,11 @@ class TTHelper():
                     for rec in receivers:
                         ray_coords = solver.traveltime.trace_ray( np.array( [rec[0], 0, rec[1]] , dtype=float) )
                         ax.plot(ray_coords[:, 0], ray_coords[:, 2], 'k', alpha=0.4)
-            
-            ax.set_xlabel('x [km]')
-            ax.set_ylabel('z [km]')
+                    
+                    ax.plot([], [], 'k', alpha=0.8, label='first arrival ray')
+                        
+            ax.set_xlabel(r'$x$ [km]')
+            ax.set_ylabel(r'$z$ [km]')
             
             ax.xaxis.set_major_locator(MaxNLocator(integer=True))
             ax.yaxis.set_major_locator(MaxNLocator(integer=True))
@@ -113,7 +124,7 @@ class TTHelper():
             if ylim:
                 ax.set_ylim(ylim)
             if colorbar:
-                cbar = plt.colorbar(im)
+                cbar = plt.colorbar(im, fraction=0.046, pad=0.04, ax=ax)
                 cbar.set_label('Wavespeed [km/s]')
             if title:
                 ax.set_title(title)
