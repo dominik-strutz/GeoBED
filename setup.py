@@ -17,6 +17,7 @@ setup(name='geoboed',
       #       'torch',
       #       'pyro-ppl',
       #       'tqdm',
+      #       'scikit-learn',
       # ],
       # extras_require={
       #       'h5py',

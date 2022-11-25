@@ -12,7 +12,7 @@ from .var_post import var_post
 
 from .iterative_construction import _find_optimal_design_iterative_construction
 
-from .dataloader import dataloader
+from .dataloader import Dataloader
 
 
 class BOED_sample():
@@ -43,17 +43,17 @@ class BOED_sample():
                 return x
         self.design_restriction = design_restriction
         
-        with dataloader(filename) as dataframe:
-            self.n_prior    = dataframe['prior'].shape[0]
+        with Dataloader(filename) as dataframe:
+            self.n_prior      = dataframe['prior'].shape[0]
             self.model_dim    = dataframe['prior'].shape[1]
             
-            self.n_designs  = design_restriction(dataframe['design']).shape[0]
-            self.designs    = design_restriction(dataframe['design'][:])
-                
-            self.prior  = dataframe['prior'][:]
+            self.designs    = dataframe['design'][:]
+            self.n_designs  = self.designs.shape[0]
 
-            assert self.n_prior   == np.apply_along_axis(self.design_restriction, 1, dataframe['data']).shape[0], 'The number of prior samples and size of the second dimension of the data array must be the same.'
-            assert self.n_designs == np.apply_along_axis(self.design_restriction, 1, dataframe['data']).shape[1], 'The number of design samples and size of the first dimension of the data array must be the same.'
+            self.prior      = dataframe['prior'][:]
+
+            assert self.n_prior   == dataframe['data'].shape[0], 'The number of prior samples and size of the second dimension of the data array must be the same.'
+            assert self.n_designs == dataframe['data'].shape[1], 'The number of design samples and size of the first dimension of the data array must be the same.'
 
         self.data_likelihood = data_likelihood
         self.design_independent_likelihood = design_independent_likeliehood
@@ -64,8 +64,8 @@ class BOED_sample():
         Returns:
             ndarray: Array of shape (n_designs, 1) containing the designs used in the optimization.
         """        
-        return self.designs
-    
+        return self.design_restriction(self.designs)
+        
     def get_prior(self, n_samples=None):
         """Returns samples from the prior distribution.
 
@@ -99,9 +99,9 @@ class BOED_sample():
         
         n_samples = self.n_prior if n_samples is None else n_samples
         if n_samples > self.n_prior:
-            raise ValueError('Only {self.n_prior} samples are available!')
+            raise ValueError(f'Only {self.n_prior} samples are available!')
         
-        with dataloader(self.filename) as dataframe:
+        with Dataloader(self.filename) as dataframe:
             samples = np.apply_along_axis(self.design_restriction, 1, dataframe['data'][:n_samples])
                     
         return samples
@@ -128,7 +128,7 @@ class BOED_sample():
                             optimization_method, boed_method,
                             optimization_method_kwargs={}, boed_method_kwargs={},
                             return_information=True, save_information=False,
-                            plot_loss=False, n_parallel=1, **kwargs):
+                            n_parallel=1, **kwargs):
         """_summary_
 
         Args:
@@ -138,7 +138,7 @@ class BOED_sample():
         if optimization_method == 'iterative construction':
             
             out = _find_optimal_design_iterative_construction(
-                self, design_dim, boed_method, boed_method_kwargs, plot_loss, n_parallel=n_parallel, **optimization_method_kwargs)
+                self, design_dim, boed_method, boed_method_kwargs, n_parallel=n_parallel, **optimization_method_kwargs)
             
         elif optimization_method == 'iterative decimation':
             raise NotImplementedError('Iterative decimation not implemented yet')
@@ -175,7 +175,7 @@ class BOED_sample():
         else:
             raise ValueError('BOED method not implemented. Please choose from one of the following: dn, nmc, var_marg, var_post')
                 
-        with dataloader(self.filename) as dataframe:
+        with Dataloader(self.filename) as dataframe:
             if self.boed_method == 'dn':
                 self.oed_results = dn(self, dataframe, design_list, disable_tqdm=disable_tqdm,
                                       **boed_method_kwargs)

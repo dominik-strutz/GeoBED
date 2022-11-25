@@ -14,23 +14,22 @@ from operator import methodcaller
 
 def _find_optimal_design_iterative_construction(
     self, design_dim, boed_method, boed_method_kwargs,
-    plot_loss=False, n_parallel=1,
-    **optimization_method_kwargs):
+    plot_loss=False, n_parallel=1,):
 
     fixed_des_ind = []
     eig_array_dict = {}
     info_dict_dict = {}
     
-    # save return dict before chaninging it in case it is needed to plot losses
     try:
-        return_dict = boed_method_kwargs['return_dict'] 
+        return_guide = boed_method_kwargs['return_guide'] 
     except KeyError:
         # only save return dict if it is given as an argument
-        return_dict = False
-    boed_method_kwargs['return_dict'] = True if (plot_loss or return_dict) else False
+        return_guide = False
         
     for i_des in range(1, design_dim+1):
         
+        print(f'Started calculating EIG for design dimension {i_des}')
+
         if len(fixed_des_ind) > 0:
             
             design_indices = np.arange(0, self.n_designs, dtype=int)[:, None]
@@ -41,10 +40,12 @@ def _find_optimal_design_iterative_construction(
                 
             design_list = np.hstack(design_list)
             design_list = np.sort(design_list, axis=1) #list inidices must be in ascending order
-        
+            design_list = self.design_restriction(design_list)
+
         else:
             design_list = np.arange(0, self.n_designs, dtype=int)[:, None]
-        
+            design_list = self.design_restriction(design_list)
+            
         if n_parallel > 1:
             
             def parallel_func(design_sublist):
@@ -55,7 +56,7 @@ def _find_optimal_design_iterative_construction(
                                     
             with Pool(ncpus=n_parallel) as pool:
                 out = pool.map(parallel_func, [design_list[x:x+batch_size] for x in range(0, len(design_list), batch_size)])
-                
+                                
                 eig_list = np.concatenate(list(zip(*out))[0])
                 out_dict = (list(zip(*out))[1])
             
@@ -69,22 +70,20 @@ def _find_optimal_design_iterative_construction(
             # pool.join()
             # pool.restart() #pathos cant open new pools with same state as the old ones 
             
-            #TODO: make check to see of right methods are used
-            if return_dict or boed_method_kwargs['return_dict']:
-                # initialise defaultdict of lists
-                out_dict = defaultdict(list)
-                
-                # this fancy procesing is combing the output dicts from the parallel processes
-                # only losses and var guide lists need to be combined 
-                dict_items = map(methodcaller('items'), (list(zip(*out))[1]))
-                for k, v in chain.from_iterable(dict_items):
-                    if k == 'losses':
-                        if type(out_dict[k]) == list:
-                            out_dict[k] = v
-                        else:
-                            out_dict[k] = np.concatenate((out_dict[k], v), axis=1)
-                    if k == 'var_guide' and return_dict:
-                        out_dict[k].extend(v)
+            # initialise defaultdict of lists
+            out_dict = defaultdict(list)
+                        
+            # this fancy procesing is combing the output dicts from the parallel processes
+            # only losses and var guide lists need to be combined 
+            dict_items = map(methodcaller('items'), (list(zip(*out))[1]))
+            for k, v in chain.from_iterable(dict_items):
+                if k == 'losses':
+                    if type(out_dict[k]) == list:
+                        out_dict[k] = v
+                    else:
+                        out_dict[k] = np.concatenate((out_dict[k], v), axis=1)
+                if k == 'var_guide' and return_guide:
+                    out_dict[k].extend(v)
                         
         # use serial processing that can make use of pytorch parallelization if n_parallel = 1 
         else:
@@ -94,13 +93,10 @@ def _find_optimal_design_iterative_construction(
         fixed_des_ind.append(opteig_ind)
         
         eig_array_dict[f'{i_des}'] = eig_list
-        if return_dict:
-            info_dict_dict[f'{i_des}'] = out_dict
+        info_dict_dict[f'{i_des}'] = out_dict
 
-        print(f'Finished calculating EIG for design dimension {i_des}')
-
-        if plot_loss and (boed_method == 'var_marg' or boed_method == 'var_post'):
-            
+        if boed_method_kwargs.get('plot_loss') == True:
+                
             fig = plt.figure(figsize=(6, 3))
             ax_dict = fig.subplot_mosaic('a')
             
@@ -113,7 +109,4 @@ def _find_optimal_design_iterative_construction(
             
             plt.show()
         
-    if return_dict:
-        return fixed_des_ind, eig_array_dict, info_dict_dict
-    else:
-        return fixed_des_ind, eig_array_dict
+    return fixed_des_ind, eig_array_dict, info_dict_dict

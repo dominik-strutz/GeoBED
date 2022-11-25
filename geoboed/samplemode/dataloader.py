@@ -1,6 +1,8 @@
 import numpy as np
+import torch
+from torch.utils.data import Dataset, DataLoader
 
-class dataloader():
+class Dataloader():
     def __init__(self, filename):
         self.filename = filename
     def __enter__(self):
@@ -22,3 +24,29 @@ class dataloader():
             self.fd.close()
         elif self.filename.endswith('.npz'):
             self.npz.close()
+
+
+class DataPrepocessor(Dataset):
+
+    def __init__(self, data_samples, model_samples=None, preprocessing=True):
+        if not torch.is_tensor(data_samples):
+            self.data = torch.from_numpy(data_samples)
+        else:
+            self.data = data_samples
+        
+        if model_samples is not None:
+            if not torch.is_tensor(model_samples):
+                self.model = torch.from_numpy(model_samples)
+            else:
+                self.model = model_samples
+        else:
+            self.model = None
+                                            
+    def __len__(self):
+        return len(self.data)
+
+    def __getitem__(self, idx):
+        if self.model is not None:
+            return self.data[idx], self.model[idx]
+        else:
+            return self.data[idx]

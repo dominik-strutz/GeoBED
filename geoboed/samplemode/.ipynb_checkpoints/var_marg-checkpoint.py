@@ -1,4 +1,4 @@
-import random
+import math
 
 import numpy as np
 import torch
@@ -11,30 +11,57 @@ import pyro.distributions as dist
 from torch.distributions import constraints
 import pyro.distributions.transforms as transforms
 import torch.distributions.transforms as torch_transforms
+from torch.utils.data import Dataset, DataLoader
 
-from sklearn.mixture import GaussianMixture, BayesianGaussianMixture
+from .dataloader import DataPrepocessor
 
 
-def var_marg(self, dataframe, design_list, var_guide,
-             n_steps, N, M=-1, n_stochastic=None,
+def var_marg(self, dataframe, design_list,
+             
+             var_guide, 
+
+             N, M=-1,
+             
+             n_batch=1,
+             n_epochs=1,
              optim=None, scheduler=None,
-             batched=False, guide_args={},
-             return_dict=False, preload_samples=True,
-             disable_tqdm=False, set_rseed=True, **kwargs):
-
-
+             guide_args={},
+             preload_samples=False,
+             return_guide=False, 
+             disable_tqdm=False,
+             set_rseed=True,
+             plot_loss=None):
+    
+    # for reproducibility
+    if set_rseed:
+        pyro.set_rng_seed(0)
+        torch.manual_seed(0)
+        
+    if N > self.n_prior: raise ValueError(
+        'Not enough prior samples, N has to be smaller or equal than n_prior!')
+        
+    # set M if all samples should be used (-1)
+    M = M if not M == -1 else self.n_prior - N
+    
     # Some checks to make sure all inputs are correct
     if N + M > self.n_prior: raise ValueError(
-        'Not enough prior samples, N+M has to be smaller than n_prior!')
+        'Not enough prior samples, N+M has to be smaller or equal than n_prior!')
+    if n_batch > M: raise ValueError(
+        'Batch size cant be larger then sample size')
     
-    # set M properly if all samples should be used (-1)
-    M = M if not M == -1 else self.n_prior - N
-        
-    if n_stochastic is  not None:
-        if n_stochastic >= N: raise ValueError(
-            'No stochastic sampling possible when all samples are used')
-        
-    # set optimizer or fall back to default if none is set
+    if var_guide == 'nf':
+        guide_template = Coupling_Spline_NF
+    elif var_guide == 'gmm':
+        guide_template = GaussianMixtureModel
+    elif var_guide == 'dn':
+        guide_template = None
+    elif type(var_guide) == str:
+        raise NotImplementedError(f'Guide {var_guide} not implemented')
+    else:
+        guide_template = var_guide
+
+    
+    # set optimizer or fall back to reasonable default if None is set
     if optim is None:
         def optimizer_constructor(guide):
             return torch.optim.Adam(guide.parameters(), lr=1e-2)
@@ -43,175 +70,133 @@ def var_marg(self, dataframe, design_list, var_guide,
         
     # set scheduler or don't set any if none is set
     if scheduler is not None:
-        scheduler_constructor  = scheduler['scheduler']
-        scheduler_n_iterations = scheduler['n_iterations']
-            
+        scheduler_constructor = scheduler
+        
+    eig_list = []
+    if return_guide:
+        guide_collection = []
+    losses_collection = []
+        
     if preload_samples:
-        pre_samples = torch.tensor(np.apply_along_axis(self.design_restriction, 1, dataframe['data'][:N+M]))
-    
-    if batched:
-        raise NotImplementedError('Batched calculations not implemented yet.')
+        dataframe = dict(dataframe)
         
-    else:        
-        eig_list = []
-        if return_dict:
-            guide_collection = []
-        losses_collection = []
-        
-        
-        for i, design_i in tqdm(enumerate(design_list), total=len(design_list), disable=disable_tqdm):
-            
-            if set_rseed:
-                # set random set so each design point has same noise realisation
-                pyro.set_rng_seed(0)
-                torch.manual_seed(0)
-                random.seed(0)
-            
-            if preload_samples:
-                # tolist necessary as as single elemet tensor will return an int instead of a tensor
-                # None necessary to make make sure the tnesor is in the right shape
-                samples = pre_samples[:N+M, design_i.tolist()][:, None, :]            
-            else:
-                samples = torch.tensor(np.apply_along_axis(self.design_restriction, 1, dataframe['data'][:N+M]))[design_i.tolist()][:, None, :]       
-                        
-            if var_guide == 'cpl_spline_nf':
-                guide = Coupling_Spline_NF(samples[:], guide_args)
-            elif var_guide == 'gmm':
-                guide = GaussianMixtureModel(samples[:], guide_args)
-            elif var_guide == 'gmm_scikit':
-                pass
-            elif type(var_guide) == str:
-                raise NotImplementedError('Guide not implemented')
-                        
-            if var_guide != 'gmm_scikit':
+    for i, design_i in tqdm(enumerate(design_list), total=len(design_list), disable=disable_tqdm):
                 
-                optimizer = optimizer_constructor(guide)
-                if scheduler is not None:
-                    scheduler = scheduler_constructor(optimizer)
-
-                losses = []
-
-                for step in (tqdm(range(n_steps), total=n_steps, disable=True, leave=False)):
-                    
-                    optimizer.zero_grad()
-
-                    if n_stochastic is not None:
-                        random_indices = random.sample(range(N), n_stochastic)
-                        x = self.data_likelihood(samples[random_indices], self.get_designs()[design_i]).sample([1, ]).flatten(start_dim=0, end_dim=1)
+        if set_rseed:
+            # set random set so each design point has same noise realisation
+            pyro.set_rng_seed(0)
+            torch.manual_seed(0)
+        
+        if var_guide == 'dn':
+            # for dn/single gaussian no guide needs to be trained
+            N_fwd_samples       = torch.tensor(dataframe['data'][:N, design_i.tolist()])[:, None, :].float()
+            N_likeliehood       = self.data_likelihood(N_fwd_samples, self.get_designs()[design_i.tolist()])
+            N_likeliehood_samples = N_likeliehood.sample([1, ]).flatten(start_dim=0, end_dim=1).detach()
+            N_processed_samples = DataPrepocessor(N_likeliehood_samples.float())
+            
+            # determinant of 1D array covariance not possible so we need to differentiate
+            if len(design_i) < 2:
+                model_det = torch.cov(N_processed_samples.data.squeeze()).detach()
+            else:
+                model_det = torch.linalg.det(torch.cov(N_processed_samples.data.squeeze().T))
+            #TODO: Test if this really works                 
+            D = design_i.shape[0] 
                         
-                    else:
-                        x = self.data_likelihood(samples[:N], self.get_designs()[design_i]).sample([1, ]).flatten(start_dim=0, end_dim=1)                
-                                
-                    loss = -guide.log_prob(x).mean()
+            marginal_lp = -1/2 * (math.log(model_det) + D/1 + D/1 * math.log(2*math.pi))
+            
+            conditional_lp = N_likeliehood.log_prob(N_processed_samples.data).detach()
+            
+            eig = ((conditional_lp).sum(0) / N) - marginal_lp
+            
+        else:
+            # design restriction need to be applied on axis one as axis 0 is the sample dimension 
+            # tolist necessary as as single elemet tensor will return an int instead of a tensor
+            # None necessary to make make sure the tensor is in the right shape
+            N_fwd_samples         = torch.tensor(dataframe['data'][:N, design_i.tolist()])[:, None, :].float()
+            M_fwd_samples         = torch.tensor(dataframe['data'][N:N+M, design_i.tolist()])[:, None, :].float()
+            # generate noisy samples for each fwd model sample
+            
+            N_likeliehood = self.data_likelihood(N_fwd_samples, self.get_designs()[design_i.tolist()])
+            M_likeliehood = self.data_likelihood(M_fwd_samples, self.get_designs()[design_i.tolist()])
+            
+            N_likeliehood_samples = N_likeliehood.sample([1, ]).flatten(start_dim=0, end_dim=1).detach()
+            M_likeliehood_samples = M_likeliehood.sample([1, ]).flatten(start_dim=0, end_dim=1).detach()
+            
+            N_processed_samples = DataPrepocessor(N_likeliehood_samples.float())
+            M_processed_samples = DataPrepocessor(M_likeliehood_samples.float())
+            
+            sample_loader = DataLoader(M_processed_samples, batch_size=n_batch, shuffle=True)
+                        
+            # use all data here to get proper mean and boundaries
+            guide = guide_template(torch.cat((N_likeliehood_samples, M_likeliehood_samples), 0), guide_args)
+            optimizer = optimizer_constructor(guide)
+            if scheduler is not None:
+                scheduler = scheduler_constructor(optimizer)
+                
+            losses = []
+
+            for e in range(n_epochs):
+                batch_losses = []
+                for ix, samples in enumerate(sample_loader):
+                                    
+                    loss = -guide.log_prob(samples.detach()).mean()
+                    
+                    # set_to_none slightly faster than zero_grad
+                    optimizer.zero_grad(set_to_none=True)
                     loss.backward()
                     optimizer.step()
-                    guide.clear_cache()
-                    
                     if scheduler is not None:
-                        if step % scheduler_n_iterations == 0:
-                            scheduler.step()
-                    
+                        scheduler.step()
+                    guide.clear_cache()
+
                     losses.append(loss.detach().item())
-                    # pbar.set_description(f"Loss: {loss.detach().item():.2e}") 
-                    #TODO: some sort of quality control for convergence
-                                    
-                likeliehood = self.data_likelihood(samples[N:N+M], self.get_designs()[design_i])
-                samples = likeliehood.sample([1, ]).flatten(start_dim=0, end_dim=1)
-
-                marginal_lp = guide.log_prob(samples)     
-                conditional_lp = likeliehood.log_prob(samples)
-                guide.clear_cache()
-
-                eig = (conditional_lp - marginal_lp).sum(0) / M 
-                
-                eig_list.append(eig.detach().item())
-                            
-                losses_collection.append(losses)
-                if return_dict:
-                    guide_collection.append(guide)
                     
-                del guide
+                    del loss
+                        
+            marginal_lp = guide.log_prob(N_processed_samples.data).detach()
+            guide.clear_cache()
             
-            else:
-                guide_args['max_iter'] = n_steps
-                guide_args['random_state'] = 0
-                # print(samples.shape)
+            losses_collection.append(losses)
+
+            if return_guide:
+                guide_collection.append(guide)
+            del guide
+
+            conditional_lp = N_likeliehood.log_prob(N_processed_samples.data).detach()
+            eig = (conditional_lp - marginal_lp).sum(0) / N 
                 
-                ds_means = samples.mean(dim=0)                
-                ds_stds  = samples.std(dim=0) 
-                                
-                # normalize to make convergence possible... #TODOL make preprocessing more general and let all functions use the same
-                N_likeliehood = self.data_likelihood((samples[:N] - ds_means) / ds_stds, self.get_designs()[design_i])
-                N_samples = N_likeliehood.sample([1, ]).flatten(start_dim=0, end_dim=1)                      
-                
-#                 if (i == 50) and (len(design_list[0]) == 2):
-#                     guide_args['verbose'] = True
-
-#                     guide = GaussianMixture(**guide_args)
-#                     guide = guide.fit((N_samples[..., 0,  :]).clone().detach().numpy())
-                    
-#                     print(N_samples[..., 0,  :].detach().numpy().shape)
-#                     # print(guide.get_params())
-#                     # print(guide.means_)
-#                     # print(guide.weights_)
-#                     # print(guide.covariances_)
-#                     # print(guide.n_iter_)
-                    
-#                     test_samples, _ = guide.sample(int(1e3))
-#                     plt.scatter(N_samples[:, 0, 0], N_samples[:, 0, 1], marker='x', s=20, label='reference')
-#                     plt.legend()
-#                     plt.show()
-                    
-#                     plt.scatter(test_samples[:, 0], test_samples[:, 1], label='fit')
-#                     plt.legend()
-#                     plt.show()
-                    
-#                     plt.scatter(N_samples[:, 0, 0], N_samples[:, 0, 1], marker='x', s=20, label='reference')
-#                     plt.scatter(test_samples[:, 0], test_samples[:, 1], label='fit')
-#                     plt.legend()
-#                     plt.show()
-                    
-#                     guide_args['verbose'] = False
-
-                    
-                # else:
-                guide = BayesianGaussianMixture(**guide_args).fit(N_samples[..., 0,  :].detach().numpy())
-
-                # print(guide)
-                # print(guide.converged_)
-                # print(guide.weights_)
-                # print(guide.n_iter_)
-
-                M_likeliehood = self.data_likelihood((samples[N:N+M] - ds_means) / ds_stds, self.get_designs()[design_i])
-                M_samples = M_likeliehood.sample([1, ]).flatten(start_dim=0, end_dim=1)
-
-                marginal_lp = torch.tensor(guide.score_samples(M_samples[..., 0, :].detach().numpy())).unsqueeze(-1)
-                conditional_lp = M_likeliehood.log_prob(M_samples)
-                                
-                eig = (conditional_lp - marginal_lp).sum(0) / M                
-                eig_list.append(eig.detach().item())
-                                
-                losses_collection.append([guide.lower_bound_, ])          
-                
-        if return_dict:
-            output_dict = {
-                'var_guide_name':  var_guide,
-                'var_guide':       guide_collection,
-                'n_steps':         n_steps,
-                'N':               N,
-                'M':               M,
-                'n_stochastic':    n_stochastic,
-                'optim':           optim,
-                'scheduler':       scheduler,
-                'batched':         batched,
-                'guide_args':      guide_args,
-                'losses':          np.array(losses_collection).T,
-                }
-                            
-            return np.array(eig_list), output_dict
-        else:
-            return np.array(eig_list), None
-         
+        eig_list.append(eig.detach().item())
+                                        
+    if return_guide:
+        output_dict = {
+            'var_guide_name':  var_guide,
+            'var_guide':       guide_collection,
+            'N':               N,
+            'M':               M,
+            'optim':           optim,
+            'scheduler':       scheduler,
+            'guide_args':      guide_args,
+            'losses':          np.array(losses_collection).T,
+            }
+                        
+        return np.array(eig_list), output_dict
+    
+    elif var_guide == 'dn':
+        output_dict = {'N': N,}
+        return np.array(eig_list), output_dict
+    
+    else:
+        output_dict = {
+            'var_guide_name':  var_guide,
+            'N':               N,
+            'M':               M,
+            'optim':           optim,
+            'scheduler':       scheduler,
+            'guide_args':      guide_args,
+            'losses':          np.array(losses_collection).T,
+            }
+        return np.array(eig_list), output_dict
+        
 
 
 class Coupling_Spline_NF(torch.nn.Module):
@@ -224,33 +209,56 @@ class Coupling_Spline_NF(torch.nn.Module):
         
         self.ds_means = data.mean(dim=0)
         self.ds_stds  = data.std(dim=0) 
+                
+        # if dim is prvided tuple is returned
+        self.ds_min = torch.min(data, dim=0)[0]
+        self.ds_max = torch.max(data, dim=0)[0]
+        self.ds_range = self.ds_max - self.ds_min
+        # add small buffer to avoide numerical issues
+        self.ds_min -= 1e-1 * self.ds_range
+        self.ds_max += 1e-1 * self.ds_range
         
         self.cpl_base_dist = dist.Normal(torch.zeros(self.desing_dim),
                                          torch.ones(self.desing_dim))
-        
+
         self.transform_list = []
         
         if 'flows' in guide_args: 
             for i_f, flow in enumerate(guide_args['flows']):
-                self.transform_list.append(flow(self.desing_dim, **guide_args['flow_args'][i_f]))
+                if 'flow_args' in guide_args:            
+                    self.transform_list.append(flow(self.desing_dim, **guide_args['flow_args'][i_f]))
+                else:
+                    self.transform_list.append(flow(self.desing_dim))
         else:
-           self.transform_list.append(transforms.spline_coupling(self.desing_dim, count_bins=32))
+           self.transform_list.append(transforms.spline_coupling(self.desing_dim, count_bins=8))
 
-        self.guide = dist.TransformedDistribution(
+        self.cpl_trans_dist = dist.TransformedDistribution(
             self.cpl_base_dist, self.transform_list)
+            
+        if 'processing' in guide_args:
 
-        normalizing = torch_transforms.AffineTransform(self.ds_means, 3*self.ds_stds)
+            if guide_args['processing'] == 'normalise':
+                # event_dim necessary for some transformations eg spline        
+                self.guide  = dist.TransformedDistribution(
+                self.cpl_trans_dist ,  torch_transforms.AffineTransform(self.ds_means, self.ds_stds, event_dim=1))
+            elif guide_args['processing'] == 'log_transform':
+                # should have the same effect as the one used in Zhang 2021: Seismic Tomography Using Variational Inference Methods
+                self.guide  = dist.TransformedDistribution(
+                    self.cpl_trans_dist ,  torch_transforms.SigmoidTransform())
+                self.guide  = dist.TransformedDistribution(
+                    self.guide ,  torch_transforms.AffineTransform(self.ds_min, (self.ds_max - self.ds_min), event_dim=1))
         
-        self.guide  = dist.TransformedDistribution(self.guide , normalizing)
-
     def parameters(self):
         return torch.nn.ModuleList(
             self.transform_list
             ).parameters()
 
     def log_prob(self, data_samples):
-        x = data_samples.float().clone()
-        return self.guide.log_prob(x)
+        x = data_samples.detach().clone()
+        # this should be equivalent?!?
+        # x = data_samples.float().detach()        
+        log_prob = self.guide.log_prob(x)
+        return log_prob
     
     def clear_cache(self):
         self.guide.clear_cache()
@@ -272,35 +280,75 @@ class GaussianMixtureModel(torch.nn.Module):
         
         self.ds_means = data.mean(dim=0)
         self.ds_stds  = data.std(dim=0)
-
-        mix_param  = torch.rand(self.K)
-        mean_param = torch.rand(self.K, self.data_dim)
-        cov_param  = torch.diag_embed(torch.ones(self.K, self.data_dim))
         
+        # if dim is prvided tuple is returned
+        self.ds_min = torch.min(data, dim=0)[0]
+        self.ds_max = torch.max(data, dim=0)[0]
+        self.ds_range = self.ds_max - self.ds_min
+        # add small buffer to avoide numerical issues
+        self.ds_min -= 1e-1 * self.ds_range
+        self.ds_max += 1e-1 * self.ds_range
+
+        self.guide_args = guide_args
+        
+        if 'processing' in guide_args:
+            
+            mix_param  = torch.ones(self.K)
+            
+            if self.guide_args['processing'] == 'normalise':
+                mean_param = (data[:self.K] - self.ds_means) / self.ds_stds
+                mean_param = mean_param[:, 0, :] 
+                cov_param  = torch.diag_embed(torch.ones(self.K, self.data_dim))
+
+            else:
+                mean_param = torch.randn(self.K, self.data_dim)
+                cov_param  = torch.diag_embed(torch.ones(self.K, self.data_dim))
+                        
+        else:
+            mix_param  = torch.ones(self.K)
+            if self.K > 1:
+                mean_param = data[:self.K][:, 0, :] # = torch.randn(self.K, self.data_dim)
+            else:
+                mean_param = self.ds_means # = torch.randn(self.K, self.data_dim)
+
+            cov_param  = torch.diag_embed(self.ds_stds/self.K * torch.ones(self.K, self.data_dim))
+            
         self.mix_param  = torch.nn.Parameter(mix_param)
         self.mean_param = torch.nn.Parameter(mean_param)
         self.cov_param  = torch.nn.Parameter(cov_param)
-    
+        
     def log_prob(self, data_samples):
         
         # DONT remove the .clone() here. It will break the code because of the way pytorch handles gradients
-        x = data_samples.clone()
+        # x = data_samples.detach().clone()
 
         # normalize mixture weights to ensure they sum to 1 (simplex constraint)
         self.mix = dist.Categorical(logits=torch.nn.functional.log_softmax(self.mix_param, -1))
         
         # ensure positive-definiteness
         cov = torch.matmul(self.cov_param, torch.transpose(self.cov_param, -1, -2)) 
-        cov += torch.diag_embed(torch.ones(self.K, self.data_dim)) * 1e-6
+        cov += torch.diag_embed(torch.ones(self.K, self.data_dim)) * 1e-5
         
         self.comp = dist.MultivariateNormal(self.mean_param, covariance_matrix=cov)
         self.guide = dist.MixtureSameFamily(self.mix, self.comp)
         
-        # This makes allows the guide to be fitted a lot quicker 
-        normalizing = torch_transforms.AffineTransform(self.ds_means, self.ds_stds, event_dim=1)
-        self.guide  = dist.TransformedDistribution(self.guide , normalizing)     
+        if 'processing' in self.guide_args:
 
-        return self.guide.log_prob(x)
+            if self.guide_args['processing'] == 'normalise':
+                # event_dim necessary for some transformations eg spline        
+                self.guide  = dist.TransformedDistribution(
+                self.guide ,  torch_transforms.AffineTransform(self.ds_means, self.ds_stds, event_dim=1))
+            elif self.guide_args['processing'] == 'log_transform':
+                # should have the same effect as the one used in Zhang 2021: Seismic Tomography Using Variational Inference Methods
+                self.guide  = dist.TransformedDistribution(
+                    self.guide ,  torch_transforms.SigmoidTransform())
+                self.guide  = dist.TransformedDistribution(
+                    self.guide ,  torch_transforms.AffineTransform(self.ds_min, (self.ds_max - self.ds_min), event_dim=1))
+            elif self.guide_args['processing'] == 'max_divide': 
+                self.guide  = dist.TransformedDistribution(
+                    self.guide ,  torch_transforms.AffineTransform(0, self.ds_max, event_dim=1))
+
+        return self.guide.log_prob(data_samples.detach())
     
     def clear_cache(self):
         pass
@@ -308,68 +356,3 @@ class GaussianMixtureModel(torch.nn.Module):
     def sample(self, size):
         sample = self.guide.sample(size)
         return sample
-
-    
-# class GaussianMixtureModel_batched(torch.nn.Module):
-
-#     # TODO: This is not working yet a as batching introduces information flwo between desing points
-#     # it might be necessart to take the same approach as with var post and set design as nn input somehow
-    
-#     def __init__(self, data, K=2):
-#         super().__init__()
-        
-#         # print('data.shape', data.shape)
-        
-#         self.K = K
-#         self.data_dim = data.shape[-1]
-#         self.desing_dim = data.shape[-2]
-        
-#         self.ds_means = data.mean(dim=0)
-#         self.ds_stds  = data.std(dim=0)
-        
-#         # print(self.ds_means.shape)
-#         # print(self.ds_stds.shape)  
-
-#         mix_param  = torch.rand(self.desing_dim, self.K)
-#         mean_param = torch.rand(self.desing_dim, self.K, self.data_dim)
-#         cov_param  = torch.diag_embed(torch.ones(self.desing_dim, self.K, self.data_dim))
-        
-#         # print('mix_param.shape', mix_param.shape)
-#         # print('mean_param.shape', mean_param.shape)
-#         # print('cov_param.shape', cov_param.shape)
-        
-#         self.mix_param  = torch.nn.Parameter(mix_param)
-#         self.mean_param = torch.nn.Parameter(mean_param)
-#         self.cov_param  = torch.nn.Parameter(cov_param)
-    
-#     def log_prob(self, data_samples):
-                
-#         x = data_samples.clone()
-
-#         self.mix = dist.Categorical(logits=self.mix_param)
-        
-#         # ensure positive-definiteness (bmm because batch of matrix is used)
-#         cov = torch.matmul(self.cov_param, torch.transpose(self.cov_param, -1, -2)) + \
-#             torch.diag_embed(torch.ones(self.desing_dim, self.K, self.data_dim)) * 1e-8
-                
-#         self.comp = dist.MultivariateNormal(self.mean_param, covariance_matrix=cov)
-        
-#         self.guide = dist.MixtureSameFamily(self.mix, self.comp)
-#         # print('means', self.ds_means.shape)
-#         # print('std', self.ds_stds.shape)
-        
-#         # print('self.guide.event_shape', self.guide.event_shape)
-#         # print('self.guide.batch_shape', self.guide.batch_shape)
-                
-#         normalizing = torch_transforms.AffineTransform(self.ds_means, self.ds_stds, event_dim=1)
-        
-#         self.guide  = dist.TransformedDistribution(self.guide , normalizing)     
-
-#         return self.guide.log_prob(x)
-    
-#     def clear_cache(self):
-#         pass
-        
-#     def sample(self, size):
-#         sample = self.guide.sample(size)
-#         return sample

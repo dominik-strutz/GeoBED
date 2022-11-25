@@ -14,6 +14,9 @@ def dn(self, dataframe, design_list, N=-1, return_dict=False, preload_samples=Tr
     
     N = N if not N==-1 else self.n_prior
     
+    if N  > self.n_prior: raise ValueError(
+        'Not enough prior samples, N has to be smaller or equal than n_prior!')
+    
     #TODO: Implement determinant of std errors for design dependent gaussian
     #TODO: Implement test for gaussian noise and design independent noise
     
@@ -21,7 +24,7 @@ def dn(self, dataframe, design_list, N=-1, return_dict=False, preload_samples=Tr
     
     if preload_samples:
         preloaded_samples = torch.tensor(np.apply_along_axis(self.design_restriction, 1, dataframe['data'][:N]))
-    
+        
     for i, design_i in tqdm(enumerate(design_list), total=len(design_list), disable=disable_tqdm):
         
         if preload_samples:
@@ -52,4 +55,4 @@ def dn(self, dataframe, design_list, N=-1, return_dict=False, preload_samples=Tr
         return np.array(eig_list), output_dict
         
     else:
-        return np.array(eig_list), None
+        return np.array(eig_list), {}
