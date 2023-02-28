@@ -89,22 +89,21 @@ def var_marg(self, dataframe, design_list,
         
         if var_guide == 'dn':
             # for dn/single gaussian no guide needs to be trained
-            N_fwd_samples       = torch.tensor(dataframe['data'][:N, design_i.tolist()])[:, None, :].float()
+            N_fwd_samples       = torch.tensor(dataframe['data'][:N, design_i.tolist()]).float()
             N_likeliehood       = self.data_likelihood(N_fwd_samples, self.get_designs()[design_i.tolist()])
             N_likeliehood_samples = N_likeliehood.sample([1, ]).flatten(start_dim=0, end_dim=1).detach()
-            N_processed_samples = DataPrepocessor(N_likeliehood_samples.float())
-            
-            # determinant of 1D array covariance not possible so we need to differentiate
+                        
             if len(design_i) < 2:
-                model_det = torch.cov(N_processed_samples.data.squeeze()).detach()
+                model_det = math.log(torch.cov(N_likeliehood_samples.T).detach())
             else:
-                model_det = torch.linalg.det(torch.cov(N_processed_samples.data.squeeze().T))
-            #TODO: Test if this really works                 
+                sig_det, val_det = torch.slogdet(torch.cov(N_likeliehood_samples.T))
+                model_det = sig_det * val_det
+            #TODO: Test if this really works
             D = design_i.shape[0] 
                         
-            marginal_lp = -1/2 * (math.log(model_det) + D/1 + D/1 * math.log(2*math.pi))
+            marginal_lp = -1/2 * (model_det + D + D * math.log(2*math.pi))
             
-            conditional_lp = N_likeliehood.log_prob(N_processed_samples.data).detach()
+            conditional_lp = N_likeliehood.log_prob(N_likeliehood_samples).detach()
             
             eig = ((conditional_lp).sum(0) / N) - marginal_lp
             

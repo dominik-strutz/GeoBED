@@ -37,16 +37,19 @@ def dn(self, dataframe, design_list, N=-1, return_dict=False, preload_samples=Tr
             torch.manual_seed(0)
         
         samples = self.data_likelihood(samples, design_i).sample([1, ]).flatten(start_dim=0, end_dim=1)
-                        
+        
+        print(samples)
+            
         # determinant of 1D array covariance not possible so we need to differentiate
         if len(design_i) < 2:
-            model_det = torch.cov(samples.T).detach()
+            model_det = math.log(torch.cov(samples.T).detach())
         else:
-            model_det = torch.linalg.det(torch.cov(samples.T))
-        #TODO: Test if this really works                 
+            sig_det, val_det = torch.slogdet(torch.cov(samples.T))
+            model_det = sig_det * val_det
+        #TODO: Test if this really works
         D = design_i.shape[0] 
                     
-        eig = 1/2 * math.log(model_det) + D/1 + D/1 * math.log(2*math.pi)
+        eig = 1/2 * model_det + D/1 + D/1 * math.log(2*math.pi)
         
         eig_list.append(eig)        
     
