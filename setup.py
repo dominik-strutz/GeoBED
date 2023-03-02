@@ -8,7 +8,7 @@ setup(name='geobed',
       license='MIT',
       packages=['geobed',
                 'geobed.fwd_collection',],
-      package_dir={"": 'geobed'},
+      package_dir={},
       install_requires=[
             'numpy',
             'torch',
