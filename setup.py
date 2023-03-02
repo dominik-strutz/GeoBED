@@ -14,9 +14,10 @@ setup(name='geobed',
             'torch',
             'tqdm',
             'h5py',
-            'matplotlib'
+            'matplotlib',
             'dill',
             'mpire',
+            'scipy',
       ],
       extras_require={
             'plotting':   'matplotlib',
