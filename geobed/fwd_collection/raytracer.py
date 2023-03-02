@@ -3,12 +3,12 @@ import matplotlib.pyplot as plt
 from matplotlib.ticker import MaxNLocator
 from matplotlib.colors import LinearSegmentedColormap
 
-try:
-    import pykonal
-except ImportError:
-    raise ImportError('pykonal is required for this module!')
-
 class TTHelper():
+    
+    try:
+        import pykonal
+    except ImportError:
+        raise ImportError('pykonal is required for this module!')
     
     def __init__(self, coord_sys="cartesian") -> None:
         self.coord_sys = coord_sys
