@@ -15,6 +15,7 @@ setup(name='geobed',
             'tqdm',
             'h5py',
             'matplotlib'
+            'dill',
       ],
       extras_require={
             'plotting':   'matplotlib',
