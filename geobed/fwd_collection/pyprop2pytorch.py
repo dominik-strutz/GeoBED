@@ -3,11 +3,6 @@ import torch
 from torch.autograd import Function
 from torch.autograd.function import once_differentiable
 
-try:
-    import pyprop8 as pp
-except ImportError:
-    raise ImportError('pyprop8 is required for this module!')
-
 from pyprop8.utils import stf_trapezoidal, rtf2xyz, make_moment_tensor
 
 from torch import nn
@@ -33,6 +28,12 @@ def dc2mt(DC_samples):
     return MT_sampels 
 
 class MT_Lookup_Class(nn.Module):
+    
+    try:
+        import pyprop8 as pp
+    except ImportError:
+        raise ImportError('pyprop8 is required for this module!')
+    
     def __init__(self, layers, receivers, source_location, source_time, n_t, t_0, t_N, mt_type='MT', derivatives=False, verbose=False, output_type='dis'):
         """Wrapper function for pyprop8 to compute lookup table for MT and derivatives.
 
@@ -159,6 +160,11 @@ class MT_Lookup_Class(nn.Module):
         
     
 class Calculate_Seimogram_FullSource(Function):
+
+    try:
+        import pyprop8 as pp
+    except ImportError:
+        raise ImportError('pyprop8 is required for this module!')
     
     @staticmethod
     def forward(
@@ -318,6 +324,12 @@ class Calculate_Seimogram_FullSource(Function):
 
 
 class MTxyt_Lookup_Class(nn.Module):
+    
+    try:
+        import pyprop8 as pp
+    except ImportError:
+        raise ImportError('pyprop8 is required for this module!')
+    
     def __init__(self, layers, source_depth, grid_x, grid_y, n_t, t_0, t_N, max_shift, mt_type='MT', derivatives=False, verbose=False, number_of_processes=1):
        
         super(MTxyt_Lookup_Class, self).__init__()
