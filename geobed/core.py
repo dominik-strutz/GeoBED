@@ -1,5 +1,6 @@
 from types import MethodType
-import abc
+import os
+import pickle
 
 import numpy as np
 import torch
@@ -10,6 +11,12 @@ import dill
 dill.settings['recurse'] = True # allow pickling of functions and classes
 
 from mpire import WorkerPool as Pool
+import joblib
+from joblib import Parallel, delayed
+from joblib.externals.loky import set_loky_pickler
+
+set_loky_pickler('dill')
+
 from tqdm.autonotebook import tqdm
 
 if 'threads_set' not in locals():
@@ -20,24 +27,28 @@ if 'threads_set' not in locals():
 class BED_discrete(object):
     
     # import all methods from submodules her get assign them to the class
-    from .design2data_helpers import lookup_1to1_design, lookup_interstation_design, lookup_1to1_design_variable_length
-    from .eig import dn, variational_marginal, variational_posterior
+    from .design2data_helpers import lookup_1to1_fast, lookup_interstation_design, lookup_1to1_design_flexible, constructor_1to1_fast
+    from .eig import nmc, dn, variational_marginal, variational_posterior
     from .optim import iterative_construction
     
-    def __init__(self, design_dicts, data_likelihood, prior_samples, prior_dist=None, design2data='lookup_1to1_design_variable_length'):
+    def __init__(self, design_dicts, data_likelihood, prior_samples, prior_dist=None, design2data='lookup_1to1_design_flexible'):
         
         self.design_dicts = design_dicts
         self.data_likelihood = data_likelihood
         self.prior_dist = prior_dist
+        
+        if not torch.is_tensor(prior_samples):
+           torch.tensor(prior_samples) 
         self.prior_samples = prior_samples
         
         if prior_dist is None:
-            print('No prior distribution given. Variational posterior will only be accurate up to a constant.\
+            print('No prior distribution given. Variational posterior will only be accurate up to a constant.\n \
                   This is fine for the optimisation but just a heads up.')
         
         #TODO: keep updated
-        self.design2data_methods = ['lookup_1to1_design', 'lookup_interstation_design', 'lookup_1to1_design_variable_length']        
-        self.eig_methods = ['dn', 'variational_marginal', 'variational_posterior']
+        self.design2data_methods = ['lookup_1to1_fast', 'lookup_interstation_design', 'lookup_1to1_design_flexible', 'constructor_1to1_fast']        
+        self.eig_methods = ['nmc', 'dn', 'variational_marginal', 'variational_posterior']
+        self.parallel_methods = ['mpire', 'joblib']
         self.optim_methods = ['iterative_construction']
         
         if isinstance(design2data, str):
@@ -45,11 +56,26 @@ class BED_discrete(object):
                 self.design2data = getattr(self, design2data)
             else:
                 raise ValueError(f'Unknown design2data method: {design2data}')
-        else:
+        else:            
             self.design2data = MethodType(design2data, self)
+            print('Set parallel method to mpire to use dill.')
                         
         self.n_prior = prior_samples.shape[0]
         self.name_list = list(design_dicts.keys())
+            
+        if self.prior_dist == None:
+            print('No prior distribution defined. Setting prior entropy to 0. This has no effect on the design optimisation.')
+            self.prior_entropy = torch.tensor(0.)
+        else:
+            try:
+                self.prior_entropy = self.prior_dist.entropy()
+            except:
+                print('Entropy of prior distribution could not be calculated. Calculating it numerically.\
+                       Any errors will have no effect on the design optimisation.')
+                n_ent_samples = self.n_prior if self.n_prior > int(1e6) else int(1e6)
+                ent_samples = self.prior_dist.sample( (n_ent_samples,) )
+                self.prior_entropy = -self.prior_dist.log_prob(ent_samples).sum(0) / n_ent_samples
+                del ent_samples
             
     def get_forward_samples(self, design: list, n_samples: int = None) -> Tensor:
         """Returns forward modeled samples from the prior distribution for a design point.
@@ -124,9 +150,12 @@ class BED_discrete(object):
         return samples
     
     
-    def calculate_eig(self, design, method, method_kwargs={}):
+    def calculate_eig(self, design, method, method_kwargs={}, random_seed=0):
         
         #TODO: write check if prior and data likelihood have the right event shape
+        
+        if random_seed is not None:
+            torch.manual_seed(random_seed)
         
         if method in self.eig_methods:
             self.eig_calculator = getattr(self, method)
@@ -138,10 +167,20 @@ class BED_discrete(object):
         return out
         
         
-    def calculate_eig_list(self, design_list, method, method_kwargs={}, num_workers=1, progress_bar=True):
+    def calculate_eig_list(self, design_list, method, method_kwargs={}, 
+                           num_workers=1, progress_bar=True,
+                           random_seed=0, parallel_method='joblib',
+                           filename=None,):
         
-        # TODO: make this work fast with a single worker
-        
+        if filename is not None:
+            if os.path.isfile(filename):
+                print(f'Loading eig values from {filename}')
+                with open(filename, 'rb') as f:
+                    out = pickle.load(f)
+                return out
+            else:
+                print(f'File {filename} does not exist. Calculating eig values.')
+                
         if not isinstance(method, list):
             method = [method] * len(design_list)
         if not isinstance(method_kwargs, list):
@@ -149,24 +188,68 @@ class BED_discrete(object):
         
         if num_workers > 1:
             
-            def worker(worker_id, design, method, method_kwargs):
-                return self.calculate_eig(design, method, method_kwargs)
+            if parallel_method == 'mpire':
+                def worker(worker_id, shared_self, design, method, method_kwargs):
+                    return shared_self.calculate_eig(design, method, method_kwargs, random_seed)
+                            
+                # spawn method is necessary for multiprocessing to be compatibal with pytorch and windows
+                with Pool(n_jobs=num_workers, start_method='spawn', shared_objects=self, use_dill=True, pass_worker_id=True) as pool:
+                    results = pool.map(worker, list(zip(design_list, method, method_kwargs)),
+                                    progress_bar= progress_bar, progress_bar_options={'position': 1, 'desc': 'Calculating eig',})
             
-            # spawn method is necessary for multiprocessing to be compatibal with pytorch and windows
-            with Pool(n_jobs=num_workers, start_method='spawn', use_dill=True, pass_worker_id=True) as pool:
-                results = pool.map(worker, list(zip(design_list, method, method_kwargs)),
-                                   progress_bar= progress_bar, progress_bar_options={'position': 1, 'desc': 'Calculating eig',})
+            elif parallel_method == 'joblib':
                 
+                import contextlib
+                
+                @contextlib.contextmanager
+                def tqdm_joblib(tqdm_object):
+                    """Context manager to patch joblib to report into tqdm progress bar given as argument"""
+                    class TqdmBatchCompletionCallback(joblib.parallel.BatchCompletionCallBack):
+                        def __call__(self, *args, **kwargs):
+                            tqdm_object.update(n=self.batch_size)
+                            return super().__call__(*args, **kwargs)
+
+                    old_batch_callback = joblib.parallel.BatchCompletionCallBack
+                    joblib.parallel.BatchCompletionCallBack = TqdmBatchCompletionCallback
+                    try:
+                        yield tqdm_object
+                    finally:
+                        joblib.parallel.BatchCompletionCallBack = old_batch_callback
+                        tqdm_object.close()
+                
+                def worker(design, method, method_kwargs):
+                    return self.calculate_eig(design, method, method_kwargs, random_seed)
+
+                with tqdm_joblib(tqdm(desc="Calculating eig", position=1, total=len(design_list))) as progress_bar:
+                    results = Parallel(n_jobs=num_workers)(delayed(worker)(design, method, method_kwargs) for design, method, method_kwargs in list(zip(design_list, method, method_kwargs)))
+            else:
+                raise ValueError(f'Unknown parallel method: {parallel_method}. Choose from {self.parallel_methods}')
+            
         else:
             results = []
             for design, method, method_kwargs in tqdm(list(zip(design_list, method, method_kwargs)), disable= not progress_bar):
                 results.append(self.calculate_eig(design, method, method_kwargs))
 
         out = list(zip(*results))
+                
+        out[0] = torch.stack(out[0])
         
+        if filename is not None:
+            with open(filename, 'wb') as f:
+                pickle.dump(out, f)
+            
         return out
     
-    def find_optimal_design(self, design_point_names, design_budget, opt_method, eig_method, opt_method_kwargs, eig_method_kwargs={},num_workers=1, progress_bar=True):
+    def find_optimal_design(self, design_point_names, design_budget, opt_method, eig_method, opt_method_kwargs, eig_method_kwargs={}, num_workers=1, filename=None, progress_bar=True, parallel_method='joblib'):
+        
+        if filename is not None:
+            if os.path.isfile(filename):
+                print(f'Loading optimal design from {filename}')
+                with open(filename, 'rb') as f:
+                    out = pickle.load(f)
+                return out
+            else:
+                print(f'File {filename} does not exist. Calculating optimal design.')
         
         if opt_method in self.optim_methods:
             opt_method = getattr(self, opt_method)
@@ -176,6 +259,10 @@ class BED_discrete(object):
         opt_method_kwargs['num_workers'] = num_workers
         opt_method_kwargs['progress_bar'] = progress_bar
                 
-        out = opt_method(design_point_names, design_budget, eig_method, eig_method_kwargs, **opt_method_kwargs)
+        out = opt_method(design_point_names, design_budget, eig_method, eig_method_kwargs, parallel_method=parallel_method, **opt_method_kwargs)
+        
+        if filename is not None:
+            with open(filename, 'wb') as f:
+                pickle.dump(out, f)
         
         return out

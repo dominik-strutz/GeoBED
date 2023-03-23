@@ -2,9 +2,7 @@ import torch
 import numpy as np
 from tqdm.autonotebook import tqdm
 
-from mpire import WorkerPool as Pool
-
-def iterative_construction(self, design_point_names, design_budget, eig_method, eig_method_kwargs, num_workers=1, progress_bar=True, initial_design=[],):
+def iterative_construction(self, design_point_names, design_budget, eig_method, eig_method_kwargs, num_workers=1, progress_bar=True, initial_design=[],parallel_method='joblib', allow_repeats=True):
     
     design_dicts = {n: self.design_dicts[n] for n in design_point_names}
     
@@ -23,19 +21,27 @@ def iterative_construction(self, design_point_names, design_budget, eig_method, 
         
     with tqdm(total=design_budget, disable=(not progress_bar), position=0) as pbar:
         
-        count = 0
+        count = 1
         
         optimal_design = initial_design.copy()
                 
         while budget < design_budget:
             
-            #TODO: Add internal progress bars
-            temp_design_names = [optimal_design + [n] for n in design_point_names]
+            if allow_repeats:
+                temp_design_names = [optimal_design + [n] for n in design_point_names]
+            else:
+                temp_design_names = []
+                for n in design_point_names:
+                    if n not in optimal_design:
+                        temp_design_names.append(optimal_design + [n])
+                    else:
+                        temp_design_names.append(optimal_design)
             
             #TODO: add check if no data is returned e.g.: interstation designs with one receiver
-            out_list = self.calculate_eig_list(temp_design_names, eig_method, eig_method_kwargs, num_workers, progress_bar=True)
+            out_list = self.calculate_eig_list(temp_design_names, eig_method, eig_method_kwargs, num_workers, progress_bar=True, parallel_method=parallel_method)
             eig_list, info_list = out_list
-                        
+            eig_list = eig_list.detach().numpy()
+            
             if np.all(np.isnan(eig_list)):
                 raise ValueError('All EIG values are nan! Check if enough design points are predefined for an iteriv design to work!')
             
