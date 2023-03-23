@@ -3,12 +3,9 @@ import matplotlib.pyplot as plt
 from matplotlib.ticker import MaxNLocator
 from matplotlib.colors import LinearSegmentedColormap
 
+import pykonal
+
 class TTHelper():
-    
-    try:
-        import pykonal
-    except ImportError:
-        raise ImportError('pykonal is required for this module!')
     
     def __init__(self, coord_sys="cartesian") -> None:
         self.coord_sys = coord_sys
@@ -69,7 +66,7 @@ class TTHelper():
                             vmin=vmin/1e3,
                             vmax=vmax/1e3,
                             aspect='auto',
-                            zorder=0)
+                            zorder=-10)
             
             if plot_rays is not None and receivers is not None:
                 
@@ -127,8 +124,6 @@ class TTHelper():
 
                 ax.pcolormesh(pdf_dict['x']*1e-3, pdf_dict['z']*1e-3, pdf_dict['pdf'],
                               cmap=map_object)
-                ax.plot([], [], 'ob', label='prior pdf')
-
                 
             if pdf_dict_2 is not None:
                 

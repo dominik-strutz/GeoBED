@@ -3,6 +3,7 @@ import torch
 from torch.autograd import Function
 from torch.autograd.function import once_differentiable
 
+import pyprop8 as pp
 from pyprop8.utils import stf_trapezoidal, rtf2xyz, make_moment_tensor
 
 from torch import nn
@@ -13,7 +14,7 @@ from scipy.interpolate import RegularGridInterpolator, interp1d
 
 def dc2mt(DC_samples):
     
-    MT_sampels = torch.zeros((DC_samples.shape[0], 6), dtype=torch.double)
+    MT_sampels = torch.zeros((DC_samples.shape[0], 6))
     
     for i, DC_i in enumerate(DC_samples):
         
@@ -28,12 +29,6 @@ def dc2mt(DC_samples):
     return MT_sampels 
 
 class MT_Lookup_Class(nn.Module):
-    
-    try:
-        import pyprop8 as pp
-    except ImportError:
-        raise ImportError('pyprop8 is required for this module!')
-    
     def __init__(self, layers, receivers, source_location, source_time, n_t, t_0, t_N, mt_type='MT', derivatives=False, verbose=False, output_type='dis'):
         """Wrapper function for pyprop8 to compute lookup table for MT and derivatives.
 
@@ -155,16 +150,11 @@ class MT_Lookup_Class(nn.Module):
                 seis = torch.diff(seis, prepend=torch.zeros(*seis.shape[:-1], 1))
             elif self.output_type == 'acc':
                 seis = torch.diff(seis, n=2, prepend=torch.zeros(seis.shape[:-1], 2))
-             
+            
             return seis
         
     
 class Calculate_Seimogram_FullSource(Function):
-
-    try:
-        import pyprop8 as pp
-    except ImportError:
-        raise ImportError('pyprop8 is required for this module!')
     
     @staticmethod
     def forward(
@@ -324,28 +314,44 @@ class Calculate_Seimogram_FullSource(Function):
 
 
 class MTxyt_Lookup_Class(nn.Module):
-    
-    try:
-        import pyprop8 as pp
-    except ImportError:
-        raise ImportError('pyprop8 is required for this module!')
-    
-    def __init__(self, layers, source_depth, grid_x, grid_y, n_t, t_0, t_N, max_shift, mt_type='MT', derivatives=False, verbose=False, number_of_processes=1):
+    def __init__(self, layers, source_depth,
+                 x_grid, x_max_shift,
+                 y_grid, y_max_shift,
+                 n_t, t_0, t_N, t_max_shift,
+                 mt_type='MT',
+                 output_type='dis',
+                 including_rotations=False,
+                 derivatives=False,
+                 verbose=False,
+                 number_of_processes=1):
        
         super(MTxyt_Lookup_Class, self).__init__()
 
         self.mt_type = mt_type
-        
+        self.output_type = output_type
+
         self.n_t = n_t
         self.t_0 = t_0
         self.t_N = t_N
-        self.max_shift = max_shift
         
+        x_min = x_grid[0]-x_max_shift
+        x_max = x_grid[-1]+x_max_shift
+        x_N = int(len(x_grid)*((x_max-x_min)+2*x_max_shift)/(x_max-x_min))
+        self.x_grid = np.linspace(x_min, x_max, x_N)
+        self.x_grid = np.where(self.x_grid==0, self.x_grid, self.x_grid+1e-6)
+        # avoid division by zero if receiver is on y-axis
+        
+        y_min = y_grid[0]-y_max_shift
+        y_max = y_grid[-1]+y_max_shift
+        y_N = int(len(y_grid)*((y_max-y_min)+2*y_max_shift)/(y_max-y_min))
+        self.y_grid = np.linspace(y_min, y_max, y_N)
+        self.y_grid = np.where(self.y_grid!=0, self.y_grid, self.y_grid+1e-6)
+        # avoid division by zero if receiver is on x-axis
+
         self.t_grid_out = np.linspace(t_0, t_N, n_t)
-        self.n_t_internal = int(n_t*((t_N-t_0)+2*max_shift)/(t_N-t_0))
-                
-        self.t_grid_internal, self.dt_internal = np.linspace(t_0-max_shift, t_N+max_shift, self.n_t_internal, retstep=True)
-                               
+        self.n_t_internal = int(n_t*((t_N-t_0)+2*t_max_shift)/(t_N-t_0))
+        self.t_grid_internal, self.dt_internal = np.linspace(t_0-t_max_shift, t_N+t_max_shift, self.n_t_internal, retstep=True)
+
         try:
             receivers = receivers.numpy()
         except:
@@ -356,7 +362,7 @@ class MTxyt_Lookup_Class(nn.Module):
         
         model = pp.LayeredStructureModel(layers)
             
-        grid_xx, grid_yy = np.meshgrid(grid_x, grid_y, indexing='ij')
+        grid_xx, grid_yy = np.meshgrid(self.x_grid, self.y_grid, indexing='ij')
         
         lrec = pp.ListOfReceivers(xx = grid_xx.flatten(), yy = grid_yy.flatten(), depth=0.0)
 
@@ -387,7 +393,7 @@ class MTxyt_Lookup_Class(nn.Module):
 
         source =  pp.PointSource(
             0.0, 0.0, source_depth,
-            MT_components, F, max_shift)
+            MT_components, F, t_max_shift)
 
         if verbose:
             print('Computing lookup table...')
@@ -430,8 +436,8 @@ class MTxyt_Lookup_Class(nn.Module):
             self.lookup_table = torch.tensor(self.lookup_table).movedim(0, -1)
             
             self.interpolator = RegularGridInterpolator(
-                (grid_x, grid_y),
-                (self.lookup_table.flatten(-3, -2).reshape(grid_x.shape[0], grid_y.shape[0], self.n_t_internal*3, 6)).numpy(),
+                (self.x_grid, self.y_grid),
+                (self.lookup_table.flatten(-3, -2).reshape(x_N, y_N, self.n_t_internal*3, 6)).numpy(),
                 method='linear')
 
     def forward(self, model_samples, receivers):
@@ -454,20 +460,25 @@ class MTxyt_Lookup_Class(nn.Module):
         if self.mt_type == 'DC':
             model_samples_MT[:, 3:] = dc2mt(model_samples[:, 3:])
         else:
-            model_samples_MT = model_samples
+            model_samples_MT[:, 3:] = model_samples[:, 3:]
         
         n_models = model_samples.shape[0]
         n_receivers = receivers.shape[0]
-        
-        horizontal_vector = model_samples_MT[:, :2].repeat_interleave(n_receivers, dim=0) - receivers.repeat(n_models, 1)
-                
+
+        horizontal_vector = model_samples[:, :2].repeat_interleave(n_receivers, dim=0) - receivers.repeat(n_models, 1)
+
         interpolated_lookup = torch.tensor(self.interpolator(horizontal_vector.numpy())).reshape(n_models, n_receivers, 3, self.n_t_internal, 6)          
-        
-        seis_preshift = torch.einsum('im,ijklm->ijkl', model_samples_MT[:, 3:], interpolated_lookup)
+
+        seis_preshift = torch.einsum('im,ijklm->ijkl', model_samples_MT[:, 3:], interpolated_lookup.float())
                 
         seis = torch.zeros((n_models, n_receivers, 3, self.n_t))
-        for i_model, t_i in enumerate(model_samples_MT[:, 2]):
+        for i_model, t_i in enumerate(model_samples[:, 2]):
             seis[i_model] = torch.tensor(
                 interp1d(self.t_grid_internal, seis_preshift[i_model].flatten(1, -2).numpy(), kind='cubic')(self.t_grid_out-t_i.numpy()))
+                    
+        if self.output_type == 'vel':
+            seis = torch.diff(seis, prepend=torch.zeros(*seis.shape[:-1], 1))
+        elif self.output_type == 'acc':
+            seis = torch.diff(seis, n=2, prepend=torch.zeros(seis.shape[:-1], 2))
 
         return seis
