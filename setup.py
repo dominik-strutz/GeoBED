@@ -17,7 +17,6 @@ setup(name='geobed',
             'matplotlib',
             'dill',
             'mpire',
-            'scipy',
       ],
       extras_require={
             'plotting':   'matplotlib',
