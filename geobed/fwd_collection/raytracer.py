@@ -3,7 +3,11 @@ import matplotlib.pyplot as plt
 from matplotlib.ticker import MaxNLocator
 from matplotlib.colors import LinearSegmentedColormap
 
-import pykonal
+try:
+    import pykonal
+    pykonal_installed = True
+except:
+    pykonal_installed = False
 
 class TTHelper():
     
@@ -89,9 +93,9 @@ class TTHelper():
                 
                     for rec in receivers:
                         ray_coords = solver.traveltime.trace_ray( np.array( [rec[0], 0, rec[1]] , dtype=float) )
-                        ax.plot(ray_coords[:, 0]*1e-3, ray_coords[:, 2]*1e-3, 'k--', alpha=0.4)
+                        ax.plot(ray_coords[:, 0]*1e-3, ray_coords[:, 2]*1e-3, 'k--', alpha=0.4, linewidth=1.0, zorder=-1)
                     
-                    ax.plot([], [], 'k--', alpha=0.8, label='first arrival ray')
+                    ax.plot([], [], 'k--', linewidth=1.0, alpha=0.7, label='first arrival rays')
             
             # plot wells
             if wells is not None:
@@ -119,21 +123,22 @@ class TTHelper():
                 
                 alpha_max =  pdf_dict['alpha_max'] if 'alpha_max' in pdf_dict else 1.0
                 color_array = plt.get_cmap(pdf_dict['cmap'])(range(256))
-                color_array[:,-1] = np.concatenate((np.zeros(50), np.linspace(0.4, alpha_max, 206)), axis=0)
-                map_object = LinearSegmentedColormap.from_list(name='Blues_alpha',colors=color_array)
+                alpha_offset = 80
+                color_array[:,-1] = np.concatenate((np.zeros(alpha_offset), np.linspace(0.0, alpha_max*0.8, 10), np.linspace(alpha_max*0.8, alpha_max, 256-alpha_offset-10)), axis=0)
+                map_object = LinearSegmentedColormap.from_list(name='Blues_alpha',colors=color_array[alpha_offset-1:])
+
 
                 ax.pcolormesh(pdf_dict['x']*1e-3, pdf_dict['z']*1e-3, pdf_dict['pdf'],
-                              cmap=map_object)
+                              cmap=map_object, linewidth=0, rasterized=True, zorder=0)
                 
             if pdf_dict_2 is not None:
                 
                 alpha_max =  pdf_dict_2['alpha_max'] if 'alpha_max' in pdf_dict else 1.0
                 color_array = plt.get_cmap(pdf_dict_2['cmap'])(range(256))
-                color_array[:,-1] = np.concatenate((np.zeros(50), np.linspace(0.4, alpha_max, 206)), axis=0)
-                map_object = LinearSegmentedColormap.from_list(name='Blues_alpha',colors=color_array)
-
+                alpha_offset = 80
+                color_array[:,-1] = np.concatenate((np.zeros(alpha_offset), np.linspace(0.0, alpha_max*0.8, 10), np.linspace(alpha_max*0.8, alpha_max, 256-alpha_offset-10)), axis=0)
                 ax.pcolormesh(pdf_dict_2['x']*1e-3, pdf_dict_2['z']*1e-3, pdf_dict_2['pdf'],
-                              cmap=map_object)  
+                              cmap=map_object,linewidth=0, rasterized=True, zorder=0)  
                 
             
             if prior_realisations is not None:
@@ -156,11 +161,13 @@ class TTHelper():
                     marker='*', s=300, color='r', zorder=100, clip_on=False, linewidths=0,
                     label='seismic source')
             
-            ax.set_xlabel(r'$x$ [km]')
-            ax.set_ylabel(r'$z$ [km]')
+            ax.set_xlabel('x [km]', fontsize=13)
+            ax.set_ylabel('z [km]', fontsize=13)
             
             ax.xaxis.set_major_locator(MaxNLocator(integer=True))
             ax.yaxis.set_major_locator(MaxNLocator(integer=True))
+
+            ax.tick_params(axis='both', which='major', labelsize=12)
 
             if xlim:
                 ax.set_xlim(xlim)

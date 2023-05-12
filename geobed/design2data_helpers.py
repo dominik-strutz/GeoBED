@@ -1,6 +1,10 @@
 import numpy as np
 import torch
 
+
+#TODO deal with unsorted design names and return unsorted designs
+
+
 class Dataloader():
     def __init__(self, filename):
         self.filename = filename
@@ -41,20 +45,20 @@ def lookup_1to1_fast(self, name_list, n_samples):
     dataset_list = [design_meta['dataset'] for design_meta in design_meta_list_h5]
 
     if len(list(set(filname_list))) == 1 and len(list(set(dataset_list))) == 1:
-        index_list_h5 = [design_meta['index'] for design_meta in design_meta_list_h5]
+        index_list_h5 = [dm['index'] for dm in design_meta_list_h5]
         index_list_h5_sorted = sorted(index_list_h5)
-                
-        expand_indices = [index_list_h5.index(i) for i in index_list]
-                
+        
+        expand_indices = [index_list_h5_sorted.index(i) for i in index_list]
+        
         with Dataloader(filname_list[0]) as df:
                         
-            data[:, :, :] = torch.from_numpy(df[dataset_list[0]][:n_samples, index_list_h5_sorted, :])[:, expand_indices, :]
+            data[:, :, :] = torch.from_numpy(df[dataset_list[0]][:n_samples, index_list_h5_sorted, :]).float()[:, expand_indices, :]
     
     else:
         for i, design_meta in enumerate(design_meta_list):
             with Dataloader(design_meta['file']) as df:
 
-                data[:, i, :] = torch.from_numpy(df[design_meta['dataset']][:n_samples, design_meta['index'], :])
+                data[:, i, :] = torch.from_numpy(df[design_meta['dataset']][:n_samples, design_meta['index'], :]).float()
 
     return data.flatten(start_dim=-2)
 
@@ -66,7 +70,7 @@ def constructor_1to1_fast(self, name_list, n_samples):
     for i, d_meta in enumerate(design_dicts_list):
         data[:, i, :] = d_meta['forward_function'](d_meta, self.prior_samples[:n_samples])
 
-    return data.flatten(start_dim=-2)
+    return data.flatten(start_dim=-2).float()
 
 def lookup_interstation_design(self, name_list, n_samples):
 
@@ -97,8 +101,8 @@ def lookup_interstation_design(self, name_list, n_samples):
     dataset_name = design_meta_list[0]['dataset']
         
     with Dataloader(filename) as df:
-        data = torch.from_numpy(df[dataset_name][:n_samples, indices, :])
-        
+        data = torch.from_numpy(df[dataset_name][:n_samples, indices, :]).float()
+                                
     return data.flatten(start_dim=-2)
 
 
@@ -114,5 +118,5 @@ def lookup_1to1_design_flexible(self, name_list, n_samples):
             i_data = np.stack(df[design_meta['dataset']][:n_samples, design_meta['index']])
 
             data.append(i_data)
-                                      
-    return torch.from_numpy(np.concatenate(data, axis=-1))
+                                                                            
+    return torch.from_numpy(np.concatenate(data, axis=-1)).float()

@@ -2,7 +2,13 @@ import torch
 import numpy as np
 from tqdm.autonotebook import tqdm
 
-def iterative_construction(self, design_point_names, design_budget, eig_method, eig_method_kwargs, num_workers=1, progress_bar=True, initial_design=[],parallel_method='joblib', allow_repeats=True):
+def iterative_construction(
+    self, design_point_names, design_budget,
+    eig_method, eig_method_kwargs,
+    num_workers=1, progress_bar=True,
+    initial_design=[],
+    allow_repeats=True,
+    **kwargs):
     
     design_dicts = {n: self.design_dicts[n] for n in design_point_names}
     
@@ -11,12 +17,7 @@ def iterative_construction(self, design_point_names, design_budget, eig_method, 
         raise ValueError('Costs of design points have to be equal! Otherwise the algorithm does not work!')
     
     budget = 0
-    
-    if type(eig_method) == str:
-        eig_method = [eig_method] * len(design_point_names)
-    if type(eig_method_kwargs) == dict:
-        eig_method_kwargs = [eig_method_kwargs] * len(design_point_names)
-    
+     
     out_dict = {}
         
     with tqdm(total=design_budget, disable=(not progress_bar), position=0) as pbar:
@@ -36,9 +37,18 @@ def iterative_construction(self, design_point_names, design_budget, eig_method, 
                         temp_design_names.append(optimal_design + [n])
                     else:
                         temp_design_names.append(optimal_design)
-            
+                        
             #TODO: add check if no data is returned e.g.: interstation designs with one receiver
-            out_list = self.calculate_eig_list(temp_design_names, eig_method, eig_method_kwargs, num_workers, progress_bar=True, parallel_method=parallel_method)
+            
+            eig_list_kwargs = {}
+            if 'progress_bar_eig' in eig_method_kwargs:
+                eig_list_kwargs['progress_bar'] = eig_method_kwargs['progress_bar_eig']
+            if 'random_seed' in eig_method_kwargs:
+                eig_list_kwargs['random_seed'] = eig_method_kwargs['random_seed']
+            if 'parallel_method' in eig_method_kwargs:
+                eig_list_kwargs['parallel_method'] = eig_method_kwargs['parallel_method']               
+            
+            out_list = self.calculate_eig_list(temp_design_names, eig_method, eig_method_kwargs, num_workers, **eig_list_kwargs)
             eig_list, info_list = out_list
             eig_list = eig_list.detach().numpy()
             

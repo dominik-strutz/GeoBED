@@ -3,8 +3,12 @@ import torch
 from torch.autograd import Function
 from torch.autograd.function import once_differentiable
 
-import pyprop8 as pp
-from pyprop8.utils import stf_trapezoidal, rtf2xyz, make_moment_tensor
+try:
+    import pyprop8 as pp
+    from pyprop8.utils import stf_trapezoidal, rtf2xyz, make_moment_tensor
+    pyprop8_installed = True
+except:
+    pyprop8_installed = False
 
 from torch import nn
 from torch.autograd import Function

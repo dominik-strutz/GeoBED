@@ -3,8 +3,12 @@ import torch
 
 from tqdm.autonotebook import tqdm
 
-def nmc(self, design, N, M=-1, reuse_M_samples=False,
-        M_prime=None, independent_priors=False, worker_id=None):
+from .utils import check_batch_epoch
+
+def nmc(self, design, N, M=-1,
+        reuse_M_samples=False,
+        memory_efficient=False,
+        worker_id=None):
     
     N = N if not N==-1 else self.n_prior
     M = M if not M==-1 else N
@@ -12,49 +16,58 @@ def nmc(self, design, N, M=-1, reuse_M_samples=False,
     if N < M: print("M should not be bigger than N! Asymptotically, M is idealy set to sqrt(N).")
     
     total_samples = N * (M+1) if not reuse_M_samples else N+M
-    if M_prime is not None:
-        if independent_priors:
-            total_samples += M_prime
-        else:
-            total_samples += (M_prime+1) * N
+    # if M_prime is not None:
+    #     if independent_priors:
+    #         total_samples += M_prime
+    #     else:
+    #         total_samples += (M_prime+1) * N
     
-    data_samples = self.get_forward_samples(design, total_samples)
-
-    if data_samples == None:
-        return torch.nan, None
-
-    d_dicts = {n: self.design_dicts[n] for n in design}
-    likelihood_kwargs = {'design': design, 'd_dicts': d_dicts}
+    if not memory_efficient:
     
-    if M_prime is None:
+        data_samples = self.get_forward_samples(design, total_samples)
+
+        if data_samples == None:
+            return torch.tensor(torch.nan), None
+
+        d_dicts = {n: self.design_dicts[n] for n in design}
+        likelihood_kwargs = {'design': design, 'd_dicts': d_dicts}
+        
         N_likelihoods = self.data_likelihood(data_samples[:N], **likelihood_kwargs)
         N_samples = N_likelihoods.sample()
         conditional_lp = N_likelihoods.log_prob(N_samples)
         
-        taken_samples = N
-    # else:
-    #     if independent_priors:
-    #         NM_prime_samples = data_samples[N:N+M_prime].reshape(N+M_prime, 1, data_samples.shape[-1])
-    #         NM_prime_likelihoods = self.data_likelihood(NM_prime_samples, **likelihood_kwargs)
-            
-    #         NM_likelihoods.log_prob(NM_prime_samples).logsumexp(0) - math.log(M_prime)
-            
-    #         taken_samples = N+M_prime
+        if reuse_M_samples:        
+            NM_samples = data_samples[N:, None]        
+            NM_samples = NM_samples.expand(M, N, data_samples.shape[-1])
+        else:
+            NM_samples = data_samples[N:].reshape(M, N, data_samples.shape[-1])
+                    
+        NM_likelihoods = self.data_likelihood(NM_samples, **likelihood_kwargs)
+        marginal_lp = NM_likelihoods.log_prob(N_samples).logsumexp(0) - math.log(M)
         
-    #     else:
-
-
-
-    if reuse_M_samples:        
-        #TODO: Check if this is correct
-        NM_samples = data_samples[taken_samples:taken_samples+M, None]        
-        NM_samples = NM_samples.expand(M, N, data_samples.shape[-1])
     else:
-        NM_samples = data_samples[taken_samples:].reshape(M, N, data_samples.shape[-1])
-                
-    NM_likelihoods = self.data_likelihood(NM_samples, **likelihood_kwargs)
-    marginal_lp = NM_likelihoods.log_prob(N_samples).logsumexp(0) - math.log(M)
-    
+        
+        if reuse_M_samples:
+            data_samples = self.get_forward_samples(design, total_samples)
+            
+            N_samples = data_samples[:N]
+            M_samples = data_samples[N:]
+            
+            d_dicts = {n: self.design_dicts[n] for n in design}
+            likelihood_kwargs = {'design': design, 'd_dicts': d_dicts}
+            
+            N_likelihoods = self.data_likelihood(N_samples, **likelihood_kwargs)
+            N_samples = N_likelihoods.sample()
+            conditional_lp = N_likelihoods.log_prob(N_samples)
+            
+            marginal_lp = torch.zeros(N)
+            
+            for i in range(N):
+                marginal_lp[i] = self.data_likelihood(M_samples, **likelihood_kwargs).log_prob(N_samples[i]).logsumexp(0) - math.log(M)
+            
+        else:
+            raise NotImplementedError('Memory efficient mode does not only reuse_M_samples')
+        
     eig = (conditional_lp - marginal_lp).sum(0) / N
     
     out_dict = {'N': N, 'M': M, 'reuse_N_samples': reuse_M_samples}
@@ -72,7 +85,7 @@ def dn(self, design, N=None, worker_id=None):
     data_samples = self.get_forward_samples(design, N)
     
     if data_samples == None:
-        return torch.nan, None
+        return torch.tensor(torch.nan), None
 
     d_dicts = {n: self.design_dicts[n] for n in design}
     likelihood_kwargs = {'design': design, 'd_dicts': d_dicts}
@@ -85,7 +98,7 @@ def dn(self, design, N=None, worker_id=None):
     data = data_likelihoods.sample()
     
     if data == None:
-        return torch.nan, None
+        return torch.tensor(torch.nan), None
     
     # determinant of 1D array covariance not possible so we need to differentiate
                 
@@ -128,6 +141,8 @@ def variational_marginal(
        
     M = M if not M == -1 else self.n_prior - N
     
+    n_batch, n_epochs = check_batch_epoch(n_batch, n_epochs, N, M)
+        
     # Some checks to make sure all inputs are correct
     if n_batch > M: 
         raise ValueError(
@@ -136,7 +151,7 @@ def variational_marginal(
     data_samples = self.get_forward_samples(design, N+M)
     
     if data_samples == None:
-        return torch.nan, None
+        return torch.tensor(torch.nan), None
     
     M_data_samples = data_samples[:M]
     N_data_samples = data_samples[M:]
@@ -163,9 +178,12 @@ def variational_marginal(
         optimizer = torch.optim.Adam(guide.parameters(), **optimizer_kwargs)
     else:
         optimizer = optimizer(guide.parameters(), **optimizer_kwargs)
-        
+    
     if scheduler is not None:
-            scheduler = scheduler(optimizer, **scheduler_kwargs)
+        for key in scheduler_kwargs:
+            if callable(scheduler_kwargs[key]): 
+                scheduler_kwargs[key] = scheduler_kwargs[key](**{'N': N, 'M': M, 'n_batch': n_batch, 'n_epochs': n_epochs})
+        scheduler = scheduler(optimizer, **scheduler_kwargs)
     else:
         class DummyScheduler:
             def step(self):
@@ -175,6 +193,8 @@ def variational_marginal(
     train_loss_list = []
     test_loss_list  = []
     
+    # print(f'N: {N}, M: {M}, n_batch: {n_batch}, n_epochs: {n_epochs}', scheduler, scheduler_kwargs, guide, guide_kwargs)
+    
     if progress_bar:
         pbar = tqdm(range(n_epochs), desc='Epoch 0/0, Loss: 0.000')
         
@@ -183,6 +203,7 @@ def variational_marginal(
         for batch_ndx, batch in enumerate(M_dataloader):
             batch = batch[0].detach()
             optimizer.zero_grad()
+                        
             loss = -guide.log_prob(batch).mean()
             loss.backward()
             optimizer.step()
@@ -212,13 +233,12 @@ def variational_marginal(
         'optimizer_kwargs': optimizer_kwargs,
         'scheduler_kwargs': scheduler_kwargs}
     
-    if return_guide or return_train_loss or return_test_loss:
-        if return_guide:
-            out_dict['guide'] = guide
-        if return_train_loss:
-            out_dict['train_loss'] = train_loss_list
-        if return_test_loss:
-            out_dict['test_loss']  = test_loss_list
+    if return_guide:
+        out_dict['guide'] = guide
+    if return_train_loss:
+        out_dict['train_loss'] = train_loss_list
+    if return_test_loss:
+        out_dict['test_loss']  = test_loss_list
             
     return eig, out_dict        
         
@@ -246,6 +266,8 @@ def variational_posterior(
     
     M = M if not M == -1 else self.n_prior - N
     
+    n_batch, n_epochs = check_batch_epoch(**{'N': N, 'M': M, 'n_batch': n_batch, 'n_epochs': n_epochs})
+    
     # Some checks to make sure all inputs are correct
     if n_batch > M: 
         raise ValueError(
@@ -253,7 +275,7 @@ def variational_posterior(
         
     data_samples = self.get_forward_samples(design, N+M)
     if data_samples == None:
-        return torch.nan, None
+        return torch.tensor(torch.nan), None
                     
     model_samples = self.prior_samples[:N+M]
     
@@ -292,7 +314,10 @@ def variational_posterior(
         optimizer = optimizer(guide.parameters(), **optimizer_kwargs)
 
     if scheduler is not None:
-            scheduler = scheduler(optimizer, **scheduler_kwargs)
+        for key in scheduler_kwargs:
+            if callable(scheduler_kwargs[key]): 
+                scheduler_kwargs[key] = scheduler_kwargs[key](**{'N': N, 'M': M, 'n_batch': n_batch, 'n_epochs': n_epochs})
+        scheduler = scheduler(optimizer, **scheduler_kwargs)
     else:
         class DummyScheduler:
             def step(self):
@@ -340,13 +365,12 @@ def variational_posterior(
                 'optimizer_kwargs': optimizer_kwargs,
                 'scheduler_kwargs': scheduler_kwargs}
 
-    if return_guide or return_train_loss or return_test_loss:
-        if return_guide:
-            out_dict['guide'] = guide
-        if return_train_loss:
-            out_dict['train_loss'] = train_loss_list
-        if return_test_loss:
-            out_dict['test_loss']  = test_loss_list
+    if return_guide:
+        out_dict['guide'] = guide
+    if return_train_loss:
+        out_dict['train_loss'] = train_loss_list
+    if return_test_loss:
+        out_dict['test_loss']  = test_loss_list
             
     return eig, out_dict        
         
