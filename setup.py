@@ -21,7 +21,7 @@ setup(name='geobed',
       ],
       extras_require={
             'plotting':   'matplotlib',
-            'raytracing': ['pykonal, ttcrpy',],
+            'raytracing': ['pykonal', 'ttcrpy',],
             'pyprop8':    'pyprop8'
       }
       )
