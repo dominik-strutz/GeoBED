@@ -14,3 +14,5 @@
 # Jupiter notebook checkpoints
 **.ipynb_checkpoints/
 
+# data files
+**.h5
