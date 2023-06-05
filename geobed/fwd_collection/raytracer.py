@@ -37,7 +37,7 @@ class TTHelper():
         solver.velocity.values         = self.velocity_model[:, None, :]
 
         solver.src_loc                 = np.array( (src[0], 0, src[1]) ).astype('double')
-                
+      
         solver.solve()
         
         rec_list = np.vstack( [rec_list[:, 0], np.zeros_like(rec_list[:, 0]), rec_list[:, 1]] ).T
@@ -56,21 +56,30 @@ class TTHelper():
                    receivers=None, wells=None, seismic_source=None,
                    xlim=None, ylim=None, colorbar=False,
                    vmin=None, vmax=None, title=None, im_cmap='viridis',
-                   plot_rays=None, ax=None, figsize=(16, 7)):
+                   plot_rays=None, ax=None,
+                   receiver_alpha=1.0,
+                   ray_kwargs=None,
+                   figsize=(16, 7)):
         
         if self.model_set:
                 
             if ax is None:
                 fig, ax = plt.subplots(figsize=figsize, dpi=200)
             
-            im = ax.imshow(self.velocity_model.T/1e3,
-                            extent=(min(self.x*1e-3), max(self.x*1e-3),
-                                    max(self.z*1e-3), min(self.z*1e-3)),
-                            origin='upper', cmap=im_cmap,
-                            vmin=vmin/1e3,
-                            vmax=vmax/1e3,
-                            aspect='auto',
-                            zorder=-10)
+            if vmin is None:
+                vmin = np.min(self.velocity_model)
+            if vmax is None:
+                vmax = np.max(self.velocity_model)
+            
+            if im_cmap is not None:
+                im = ax.imshow(self.velocity_model.T/1e3,
+                                extent=(min(self.x*1e-3), max(self.x*1e-3),
+                                        max(self.z*1e-3), min(self.z*1e-3)),
+                                origin='upper', cmap=im_cmap,
+                                vmin=vmin/1e3,
+                                vmax=vmax/1e3,
+                                aspect='auto',
+                                zorder=-10)
             
             if plot_rays is not None and receivers is not None:
                 
@@ -90,10 +99,15 @@ class TTHelper():
                     solver.src_loc=np.array( (src[0], 0, src[1]) ).astype('double')
                     
                     solver.solve()
-                
-                    for rec in receivers:
-                        ray_coords = solver.traveltime.trace_ray( np.array( [rec[0], 0, rec[1]] , dtype=float) )
-                        ax.plot(ray_coords[:, 0]*1e-3, ray_coords[:, 2]*1e-3, 'k--', alpha=0.4, linewidth=1.0, zorder=-1)
+
+                    if ray_kwargs is None:
+                        for rec in receivers:
+                            ray_coords = solver.traveltime.trace_ray( np.array( [rec[0], 0, rec[1]] , dtype=float) )
+                            ax.plot(ray_coords[:, 0]*1e-3, ray_coords[:, 2]*1e-3, 'k--', alpha=0.4, linewidth=1.0, zorder=-1)
+                    if ray_kwargs is not None:
+                        for rec in receivers:
+                            ray_coords = solver.traveltime.trace_ray( np.array( [rec[0], 0, rec[1]] , dtype=float) )
+                            ax.plot(ray_coords[:, 0]*1e-3, ray_coords[:, 2]*1e-3, **ray_kwargs)
                     
                     ax.plot([], [], 'k--', linewidth=1.0, alpha=0.7, label='first arrival rays')
             
@@ -117,7 +131,7 @@ class TTHelper():
                 ax.scatter(
                     receivers[:,0]*1e-3, receivers[:,1]*1e-3,
                     marker=10, s=200, color='r', zorder=100, clip_on=False, linewidths=0,
-                    alpha=0.0)
+                    alpha=receiver_alpha)
             
             if pdf_dict is not None:
                 

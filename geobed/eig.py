@@ -1,5 +1,6 @@
 import math
 import torch
+import numpy as np
 
 from tqdm.autonotebook import tqdm
 
@@ -148,7 +149,10 @@ def variational_marginal(
         raise ValueError(
         'Batch size cant be larger than M. Choose a smaller batch size or a larger M')
 
-    data_samples = self.get_forward_samples(design, N+M)
+    if self.data_likelihood is None:
+        raise ValueError('Likelihood not defined for this design. EIG can not be calculated with the variational marginal method')
+
+    data_samples = self.get_forward_samples(design, N+M)    
     
     if data_samples == None:
         return torch.tensor(torch.nan), None
@@ -162,9 +166,6 @@ def variational_marginal(
     M_data_likelihoods = self.data_likelihood(M_data_samples, **likelihood_kwargs)
     N_data_likelihoods = self.data_likelihood(N_data_samples, **likelihood_kwargs)
     
-    if N_data_likelihoods == None or M_data_likelihoods == None:
-        raise ValueError('Likelihood not defined for this design. EIG can not be calculated with the variational marginal method')
-
     M_data_samples = M_data_likelihoods.sample()
     N_data_samples = N_data_likelihoods.sample()
     
@@ -241,13 +242,202 @@ def variational_marginal(
         out_dict['test_loss']  = test_loss_list
             
     return eig, out_dict        
-        
 
 def variational_posterior(
     self,
     design,
     guide,
     N,
+    M=-1,
+    guide_kwargs={},
+    n_batch=1,
+    n_epochs=100,
+    optimizer=None,
+    optimizer_kwargs={},
+    scheduler=None,
+    scheduler_kwargs={},
+    interrogation_mapping=None,
+    prior_entropy = None,
+    return_guide=True,
+    return_train_loss=True,
+    return_test_loss=True,
+    progress_bar=False,
+    worker_id=None):
+    
+    bound_kwargs = {}
+
+    return mi_lower_bound(
+        self,
+        design,
+        guide,
+        N,
+        'variational_posterior',
+        bound_kwargs,
+        M,
+        guide_kwargs,
+        n_batch,
+        n_epochs,
+        optimizer,
+        optimizer_kwargs,
+        scheduler,
+        scheduler_kwargs,
+        interrogation_mapping,
+        prior_entropy,
+        return_guide,
+        return_train_loss,
+        return_test_loss,
+        progress_bar,
+        worker_id)
+    
+    
+def minebed(
+    self,
+    design,
+    guide,
+    N,
+    M=-1,
+    guide_kwargs={},
+    n_batch=1,
+    n_epochs=100,
+    optimizer=None,
+    optimizer_kwargs={},
+    scheduler=None,
+    scheduler_kwargs={},
+    interrogation_mapping=None,
+    prior_entropy = None,
+    return_guide=True,
+    return_train_loss=True,
+    return_test_loss=True,
+    progress_bar=False,
+    worker_id=None):
+    
+    bound_kwargs = {}
+    
+    return mi_lower_bound(
+        self,
+        design,
+        guide,
+        N,
+        'minebed',
+        bound_kwargs,
+        M,
+        guide_kwargs,
+        n_batch,
+        n_epochs,
+        optimizer,
+        optimizer_kwargs,
+        scheduler,
+        scheduler_kwargs,
+        interrogation_mapping,
+        prior_entropy,
+        return_guide,
+        return_train_loss,
+        return_test_loss,
+        progress_bar,
+        worker_id)
+
+def nce(
+    self,
+    design,
+    guide,
+    N,
+    M=-1,
+    K=None,
+    guide_kwargs={},
+    n_batch=1,
+    n_epochs=100,
+    optimizer=None,
+    optimizer_kwargs={},
+    scheduler=None,
+    scheduler_kwargs={},
+    interrogation_mapping=None,
+    prior_entropy = None,
+    return_guide=True,
+    return_train_loss=True,
+    return_test_loss=True,
+    progress_bar=False,
+    worker_id=None):
+    
+    bound_kwargs={'K': K}
+    
+    return mi_lower_bound(
+        self,
+        design,
+        guide,
+        N,
+        'nce',
+        bound_kwargs,
+        M,
+        guide_kwargs,
+        n_batch,
+        n_epochs,
+        optimizer,
+        optimizer_kwargs,
+        scheduler,
+        scheduler_kwargs,
+        interrogation_mapping,
+        prior_entropy,
+        return_guide,
+        return_train_loss,
+        return_test_loss,
+        progress_bar,
+        worker_id)
+
+def FLO(
+    self,
+    design,
+    guide,
+    N,
+    M=-1,
+    guide_kwargs={},
+    K=None,
+    n_batch=1,
+    n_epochs=100,
+    optimizer=None,
+    optimizer_kwargs={},
+    scheduler=None,
+    scheduler_kwargs={},
+    interrogation_mapping=None,
+    prior_entropy = None,
+    return_guide=True,
+    return_train_loss=True,
+    return_test_loss=True,
+    progress_bar=False,
+    worker_id=None):
+    
+    bound_kwargs={'K': K}
+    
+    return mi_lower_bound(
+        self,
+        design,
+        guide,
+        N,
+        'FLO',
+        bound_kwargs,
+        M,
+        guide_kwargs,
+        n_batch,
+        n_epochs,
+        optimizer,
+        optimizer_kwargs,
+        scheduler,
+        scheduler_kwargs,
+        interrogation_mapping,
+        prior_entropy,
+        return_guide,
+        return_train_loss,
+        return_test_loss,
+        progress_bar,
+        worker_id)
+
+
+def mi_lower_bound(
+    self,
+    design,
+    guide,
+    N,
+    bound='variational_posterior',
+    bound_kwargs={},
     M=-1,
     guide_kwargs={},
     n_batch=1,
@@ -306,8 +496,19 @@ def variational_posterior(
         torch.utils.data.TensorDataset(M_model_samples, M_data_samples),
         batch_size=n_batch, shuffle=True)
     
-    guide = guide(M_model_samples, M_data_samples, **guide_kwargs)
+    if bound == 'variational_posterior':
+        loss_function = variational_posterior_loss
+    elif bound == 'minebed':
+        loss_function = minebed_loss
+    elif bound == 'nce':
+        loss_function = nce_loss
+    elif bound == 'FLO':
+        loss_function = FLO_loss
+    else:
+        raise NotImplementedError('Bound not implemented yet')
     
+    guide = guide(M_model_samples, M_data_samples, **guide_kwargs)
+
     if optimizer is None:
         optimizer = torch.optim.Adam(guide.parameters(), **optimizer_kwargs)
     else:
@@ -338,14 +539,15 @@ def variational_posterior(
             data_batch  = batch[1].detach()
 
             optimizer.zero_grad()
-            loss = -guide.log_prob(model_batch, data_batch).mean()
+            
+            loss = -1*loss_function(guide, model_batch, data_batch, **bound_kwargs) 
             loss.backward()
             optimizer.step()
             
             train_loss_list.append(loss.item())
         
-        with torch.no_grad():
-            l = -guide.log_prob(N_model_samples, N_data_samples).mean().item()
+        with torch.no_grad():            
+            l = -1*loss_function(guide, N_model_samples, N_data_samples, **bound_kwargs).item()
         test_loss_list.append(l)
         scheduler.step()
 
@@ -355,10 +557,8 @@ def variational_posterior(
 
     if progress_bar:
         pbar.close()
-        
-    marginal_lp = guide.log_prob(N_model_samples, N_data_samples).detach()
-
-    eig = prior_entropy + (marginal_lp.sum(0) / N)
+         
+    eig = loss_function(guide, N_model_samples, N_data_samples, prior_entropy=prior_entropy, **bound_kwargs).detach()
 
     out_dict = {'N': N, 'M': M,
                 'n_epochs': n_epochs, 'n_batch': n_batch,
@@ -372,6 +572,159 @@ def variational_posterior(
     if return_test_loss:
         out_dict['test_loss']  = test_loss_list
             
-    return eig, out_dict        
+    return eig, out_dict
         
     
+def variational_posterior_loss(guide, model_batch, data_batch, prior_entropy=None):
+    
+    if prior_entropy is not None:
+        return prior_entropy + guide.log_prob(model_batch, data_batch).mean(dim=0)
+    else:
+        return guide.log_prob(model_batch, data_batch).mean(dim=0)
+
+
+def minebed_loss(guide, model_batch, data_batch, prior_entropy=None):
+    '''
+    Taken from: https://github.com/stevenkleinegesse/GradBED/blob/main/gradbed/bounds/nwj.py
+    '''
+    
+    # Shuffle y-data for the second expectation
+    idxs = np.random.choice(
+        range(len(data_batch)), size=len(data_batch), replace=False)
+    # We need y_shuffle attached to the design d
+    y_shuffle = data_batch[idxs]
+
+    # Get predictions from network
+    pred_joint = guide(model_batch, data_batch)
+    pred_marginals = guide(model_batch, y_shuffle)
+
+    # Compute the MINE-f (or NWJ) lower bound
+    Z = torch.tensor(np.exp(1), dtype=torch.float)
+    mi_ma = torch.mean(pred_joint) - torch.mean(
+        torch.exp(pred_marginals) / Z + torch.log(Z) - 1)
+
+    # we want to maximize the lower bound; PyTorch minimizes
+    return mi_ma
+
+def nce_loss(guide, x_sample, y_sample, prior_entropy=None, mode='posterior', K=None):
+    
+    
+    if K is None:
+        if mode == 'likelihood':
+            sum_dim = 0
+        elif mode == 'posterior':
+            sum_dim = 1
+        else:
+            raise NotImplemented("Choose either 'likelihood' or 'posterior'.")
+
+        batch_size = x_sample.size(0)
+        K = K if K is not None else batch_size
+        
+        # Tile all possible combinations of x and y
+        x_stacked = torch.stack(
+            [x_sample] * K, dim=0).reshape(batch_size * K, -1)
+        y_stacked = torch.stack(
+            [y_sample] * K, dim=1).reshape(batch_size * K, -1)
+
+        # get model predictions for joint data
+        pred = guide(x_stacked, y_stacked).reshape(K, batch_size).T
+
+        # rows of pred correspond to values of x
+        # columns of pred correspond to values of y
+
+        # log batch_size
+        logK = torch.log(torch.tensor(pred.size(0), dtype=torch.float))
+
+        # compute MI
+        kl = torch.diag(pred) - torch.logsumexp(pred, dim=sum_dim) + logK
+        mi = torch.mean(kl)
+
+        return mi
+
+    else:
+        
+        y_list = [y_sample]
+        for k in range(K-1):
+            y0 = y_sample[torch.randperm(y_sample.size()[0])]
+            y_list.append(y0)
+        
+        log_fxy = []
+        
+        K = len(y_list)
+        
+        for y in y_list:
+            log_fxy.append(guide(x_sample, y))
+        log_fxy0 = log_fxy[0]   
+        log_fxy = torch.cat(log_fxy,1)
+        out = log_fxy0 - torch.logsumexp(log_fxy, dim=1, keepdim=True) + torch.log(torch.Tensor([K]))
+                
+        mi = torch.mean(out)
+
+        return mi
+
+
+def FLO_loss(guide, x_sample, y_sample, prior_entropy=None, K=10):
+    '''taken from: https://github.com/qingguo666/FLO'''
+    
+    x = x_sample
+    y = y_sample
+    
+    K = 5
+     
+    gu = guide(x,y)
+    if isinstance(gu, tuple):
+        hx,hy,u = gu
+        similarity_matrix = hx @ hy.t()
+        pos_mask = torch.eye(hx.size(0),dtype=torch.bool)
+        g = similarity_matrix[pos_mask].view(hx.size(0),-1)
+        g0 = similarity_matrix[~pos_mask].view(hx.size(0),-1)
+        g0_logsumexp = torch.logsumexp(g0,1).view(-1,1)
+        output = u + torch.exp(-u+g0_logsumexp-g)/(hx.size(0)-1) - 1
+
+    else:      
+        g, u = torch.chunk(guide(x,y),2,dim=1)
+        if K is not None:
+
+            for k in range(K-1):
+
+                if k==0:
+                    y0 = y0
+                    g0,_ = torch.chunk(guide(x,y0),2,dim=1)
+                else:
+                    y0 = y[torch.randperm(y.size()[0])]
+                    g00,_ = torch.chunk(guide(x,y0),2,dim=1)
+                    g0 = torch.cat((g0,g00),1)
+
+            g0_logsumexp = torch.logsumexp(g0,1).view(-1,1)
+            output = u + torch.exp(-u+g0_logsumexp-g)/(K-1) - 1
+        else:    
+
+            g0, _ = torch.chunk(guide(x,y0),2,dim=1)
+            output = u + torch.exp(-u+g0-g) - 1
+        return output
+    
+    
+    return -torch.mean(output)
+    
+    
+    
+    # print(x_sample.shape)    
+    # print(y_sample.shape)
+    # print(y0.shape)
+    
+    # K=1
+    
+    # g = guide.critic(x_sample, y_sample)
+    # u  = guide.u_func(x_sample, y_sample)
+    
+    # y0 = y_sample[torch.randperm(y_sample.size()[0])]
+    # g0 = guide.critic(x_sample, y0)
+    
+    # for k in range(K-1):
+    #     y0 = y_sample[torch.randperm(y_sample.size()[0])]
+    #     g0 = torch.cat((g0,guide.critic(x_sample, y0)),1)
+        
+    # g0_logsumexp = torch.logsumexp(g0,1).view(-1,1)
+    # output = u + torch.exp(-u+g0_logsumexp-g)/(K-1) - 1
+    
+    # return -torch.mean(output)

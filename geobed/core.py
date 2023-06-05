@@ -23,13 +23,15 @@ from tqdm.autonotebook import tqdm
 if 'threads_set' not in locals():
     torch.set_num_threads(1)
     torch.set_num_interop_threads(1)
+    os.environ['OMP_NUM_THREADS'] = '1'
+    os.environ['MKL_NUM_THREADS'] = '1'
     threads_set = True
 
 class BED_discrete(object):
     
     # import all methods from submodules her get assign them to the class
     from .design2data_helpers import lookup_1to1_fast, lookup_interstation_design, lookup_1to1_design_flexible, constructor_1to1_fast
-    from .eig import nmc, dn, variational_marginal, variational_posterior
+    from .eig import nmc, dn, variational_marginal, variational_posterior, minebed, nce, FLO
     from .optim import iterative_construction
     
     def __init__(self, design_dicts, data_likelihood, prior_samples, prior_dist=None, design2data='lookup_1to1_design_flexible', verbose=True):
@@ -48,7 +50,7 @@ class BED_discrete(object):
         
         #TODO: keep updated
         self.design2data_methods = ['lookup_1to1_fast', 'lookup_interstation_design', 'lookup_1to1_design_flexible', 'constructor_1to1_fast']        
-        self.eig_methods = ['nmc', 'dn', 'variational_marginal', 'variational_posterior']
+        self.eig_methods = ['nmc', 'dn', 'variational_marginal', 'variational_posterior', 'minebed', 'nce', 'FLO']
         self.parallel_methods = ['mpire', 'joblib']
         self.optim_methods = ['iterative_construction']
         
@@ -96,7 +98,7 @@ class BED_discrete(object):
         n_samples = self.n_prior if n_samples is None else n_samples
         
         if n_samples > self.n_prior:
-            raise ValueError(f'Only {self.n_prior} samples are available!')
+            raise ValueError(f'Only {self.n_prior} samples are available, but {n_samples} were requested.')
                 
         data = self.design2data(design, n_samples)
         
@@ -135,7 +137,7 @@ class BED_discrete(object):
             ndarray: Array of shape (n_samples, n_designs) containing the noisy samples from the forward modeled prior distribution.
         """        
         forward_samples = self.get_forward_samples(design, n_samples)
-                
+        
         if forward_samples is None:
             return None
         
@@ -147,13 +149,15 @@ class BED_discrete(object):
         
         likelihood_kwargs = {'design': design, 'd_dicts': d_dicts}
         likelihoods = self.data_likelihood(forward_samples, **likelihood_kwargs)
-    
+            
         samples = likelihoods.sample()
                 
         return samples
     
     
-    def calculate_eig(self, design, method, method_kwargs={}, random_seed=0, filename=None):
+    def calculate_eig(self, design, method, method_kwargs={}, random_seed=923981, filename=None):
+        
+        #for some reason manual seed zero results in extremely weird behaviour
         
         #TODO: make eig_method constistent in naming
         #TODO: write check if prior and data likelihood have the right event shape
@@ -196,7 +200,7 @@ class BED_discrete(object):
         
     def calculate_eig_list(self, design_list, method, method_kwargs={}, 
                            num_workers=1, progress_bar=False,
-                           random_seed=0, parallel_method='joblib',
+                           random_seed=923981, parallel_method='joblib',
                            filename=None):
         
         if filename is not None:
@@ -207,11 +211,17 @@ class BED_discrete(object):
                 return out
             else:
                 self.verbose: print(f'File {filename} does not exist. Calculating eig values.')
-                
+        
+        if type(design_list) is np.ndarray:
+            design_list = design_list.tolist()
+        
+        if not isinstance(design_list[0], list):
+            design_list = [[d,] for d in design_list]        
         if not isinstance(method, list):
             method = [method] * len(design_list)
         if not isinstance(method_kwargs, list):
             method_kwargs = [method_kwargs] * len(design_list)
+
         
         if num_workers > 1:
             

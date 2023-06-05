@@ -17,10 +17,11 @@ setup(name='geobed',
             'matplotlib',
             'dill',
             'mpire',
+            'joblib',
       ],
       extras_require={
             'plotting':   'matplotlib',
-            'raytracing': 'pykonal',
+            'raytracing': 'pykonal, ttcrpy',
             'pyprop8':    'pyprop8'
       }
       )

@@ -68,9 +68,9 @@ def zoeppritz_solver(theta_1, a_1, a_2, b_1, b_2, r_1, r_2):
     phi_1 = torch.arcsin(p * b_1)
     phi_2 = torch.arcsin(p * b_2)
     
-    B = torch.vstack([torch.sin(theta_1), torch.cos(theta_1), torch.sin(2*theta_1), torch.cos(2*theta_1)]).T
+    B = torch.stack([torch.sin(theta_1), torch.cos(theta_1), torch.sin(2*theta_1), torch.cos(2*theta_1)], dim=-1)
         
-    M = torch.vstack([-torch.sin(theta_1), -torch.cos(phi_1), torch.sin(theta_2),  torch.cos(phi_2),
+    M = torch.stack([-torch.sin(theta_1), -torch.cos(phi_1), torch.sin(theta_2),  torch.cos(phi_2),
                        torch.cos(theta_1), -torch.sin(phi_1), torch.cos(theta_2), -torch.sin(phi_2),
                     
                       torch.sin(2*phi_1), a_1/b_1 * torch.cos(2*phi_1),
@@ -79,7 +79,7 @@ def zoeppritz_solver(theta_1, a_1, a_2, b_1, b_2, r_1, r_2):
                        
                       -torch.cos(2*phi_1), b_1/a_1 * torch.sin(2*phi_1),
                        (r_2*a_2)/(r_1*a_1)*torch.cos(2*phi_2),
-                       (r_2*b_2)/(r_1*a_1)*torch.sin(2*phi_2)]).T
+                       (r_2*b_2)/(r_1*a_1)*torch.sin(2*phi_2)], dim=-1)
     
     M = M.reshape(theta_1.shape + (4,4))
     
