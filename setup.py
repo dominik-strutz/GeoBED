@@ -20,8 +20,9 @@ setup(name='geobed',
             'joblib',
       ],
       extras_require={
-            'plotting':   'matplotlib',
-            'raytracing': ['pykonal', 'ttcrpy',],
-            'pyprop8':    'pyprop8'
-      }
+            # 'plotting':   'matplotlib',
+            'raytracing': ['pykonal', 'ttcrpy', 'vtk'], # vtk necessary for ttrcpy but not installed by default
+            'pyprop8':    'pyprop8',
+            'full':      ['pykonal', 'ttcrpy', 'vtk', 'nb_conda_kernels', 'ipykernel', 'segyio', ], # for convenience if I make a new environment
+            }
       )
