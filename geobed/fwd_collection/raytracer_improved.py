@@ -182,6 +182,9 @@ class TTHelper_2D():
         if ax is None:
             fig, ax = plt.subplots()
         
+        if kwargs.get('cmap') is None: kwargs['cmap'] = 'Greys'
+        if kwargs.get('alpha') is None: kwargs['alpha'] = 0.5
+        
         cbar = ax.imshow(
             self.velocity_model.T,
             extent=[self.x[0], self.x[-1], self.z[-1], self.z[0]],
@@ -203,9 +206,9 @@ class TTHelper_2D():
         if ax is None:
             fig, ax = plt.subplots()
             
-        if kwargs == {}:
-            kwargs = dict(marker=10, color='r', s=100)
-            
+        if kwargs.get('marker') is None: kwargs['marker'] = 10
+        if kwargs.get('color') is None: kwargs['color'] = 'r'
+        if kwargs.get('s') is None: kwargs['s'] = 100
         kwargs['clip_on'] = False
         
         ax.scatter(receivers[:, 0], receivers[:, 1], **kwargs)
@@ -215,10 +218,11 @@ class TTHelper_2D():
     def plot_source_locations(self, sources, ax=None, **kwargs):
         
         if ax is None:
-            fig, ax = plt.subplots()
-            
-        if kwargs == {}:
-            kwargs = dict(marker='*', color='k', s=100)
+            fig, ax = plt.subplots() 
+        
+        if kwargs.get('marker') is None: kwargs['marker'] = '*'
+        if kwargs.get('color') is None: kwargs['color'] = 'k'
+        if kwargs.get('s') is None: kwargs['s'] = 100
             
         kwargs['clip_on'] = False
         
@@ -250,15 +254,15 @@ class TTHelper_2D():
         if type(rays[0]) != list:
             rays = [rays]    
         
-        
+        if kwargs.get('color') is None: kwargs['color'] = 'k'
+        if kwargs.get('linewidth') is None: kwargs['linewidth'] = 0.5
+        if kwargs.get('alpha') is None: kwargs['alpha'] = 0.5
+
         for ray_i in rays:
             for ray_i_j in ray_i:
-                
-                if kwargs == {}:
-                    kwargs = dict(color='k', linewidth=0.5, alpha=0.5)
-                            
                 ax.plot(ray_i_j[:, 0], ray_i_j[:, 1], **kwargs)
-                    
+                kwargs['label'] = None
+                                    
         return ax
     
     def plot_tt_field(
@@ -281,12 +285,12 @@ class TTHelper_2D():
         if type(tt_field) != list:
             tt_field = [tt_field]
             
-        for tt_field_i in tt_field:
-                
-            if kwargs == {}:
-                kwargs = dict(cmap='viridis', alpha=0.5)
+        if kwargs.get('cmap') is None: kwargs['cmap'] = 'viridis'
+        if kwargs.get('alpha') is None: kwargs['alpha'] = 0.5
             
+        for tt_field_i in tt_field:
             ax.contour(self.x, self.z, tt_field_i.values[:, 0, :].T, extent=[self.x[0], self.x[-1], self.z[-1], self.z[0]], **kwargs)
+            kwargs['label'] = None
         
         return ax
         
@@ -320,7 +324,7 @@ def velocity_grid_constructor(x, z, method='gradient', grid=True, **kwargs):
 
         return vel
 
-    if method == 'array':
+    elif method == 'array':
         if 'velocity' in kwargs:
             return 1/kwargs['velocity']
         if 'slowness' in kwargs:
