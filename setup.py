@@ -14,15 +14,14 @@ setup(name='geobed',
             'torch',
             'tqdm',
             'h5py',
-            'matplotlib', # could be optional but it is so common that it is not worth it
+            'matplotlib',
             'dill',
             'mpire',
             'joblib',
       ],
       extras_require={
-            # 'plotting':   'matplotlib',
-            'raytracing': ['pykonal', 'ttcrpy', 'vtk'], # vtk is needed for ttrcpy but not automatically installed
-            'pyprop8':    'pyprop8',
-            'full': ['pykonal', 'ttcrpy', 'vtk', 'nb_conda_kernels', 'ipykernel', 'segyio', 'pyprop8']
+            'plotting':   'matplotlib',
+            'raytracing': ['pykonal', 'ttcrpy',],
+            'pyprop8':    'pyprop8'
       }
       )
