@@ -8,14 +8,14 @@ from matplotlib.colors import LinearSegmentedColormap
 try:
     import pykonal
     pykonal_installed = True
-except:
+except ImportError:
     pykonal_installed = False
     
 try:
     import ttcrpy
     from ttcrpy.rgrid import Grid2d
     ttcrpy_installed = True
-except:
+except ImportError:
     ttcrpy_installed = False
 
 class TTHelper_2D():
@@ -49,17 +49,8 @@ class TTHelper_2D():
         self,
         sources, receivers,
         return_rays=False,
-        return_tt_field=False):
-
-        out = []
-
-        sources = np.array(sources) if not type(sources) == torch.Tensor else sources.numpy()
-        if len(sources.shape) == 1:
-            sources = sources[None, :]
-            
-        receivers = np.array(receivers) if not type(receivers) == torch.Tensor else receivers.numpy()
-        if len(receivers.shape) == 1:
-            receivers = receivers[None, :]
+        return_tt_field=False,
+        **kwargs):
         
         # add y coordinate
         receivers = np.vstack( [receivers[:, 0], np.zeros_like(receivers[:, 0]), receivers[:, 1]] ).T
@@ -87,15 +78,67 @@ class TTHelper_2D():
                 ray_list_receivers = []
                 
                 for rec in receivers:
-                    ray_coords = solver.traveltime.trace_ray(rec)
-                    ray_list_receivers.append(ray_coords)
+                    ray_coords = solver.traveltime.trace_ray(rec)                    
+                    ray_list_receivers.append(ray_coords[:, [0, 2]])
                     
                 ray_list_sources.append(ray_list_receivers)
 
             if return_tt_field:
                 tt_field_list.append(solver.traveltime)
             
-        out.append(tt_list)
+        out = [tt_list]
+        if return_rays: out.append(ray_list_sources)
+        if return_tt_field: out.append(tt_field_list)
+            
+        return out
+    
+    def _forward_ttcrpy(
+        self,
+        sources, receivers,
+        return_rays=False,
+        return_tt_field=False,
+        **kwargs):
+        
+        cell_slowness = True if self.cell_velocity else False
+        
+        tt_list = np.zeros((len(sources), len(receivers)))
+        ray_list_sources = []
+        tt_field_list = []
+        
+        for i, src in enumerate(sources):
+            
+            src = src[None, :]
+            
+            ttcrpy_grid = Grid2d(self.x.astype('double'), self.z.astype('double'), cell_slowness=cell_slowness, **kwargs)        
+            ttcrpy_grid.set_slowness(1/self.velocity_model.astype('double'))
+        
+            # ttrcpy works with source and receiver pairs so repeat sources and tile receivers to get all pairs
+            N_src = src.shape[0]
+            N_rcv = receivers.shape[0]
+            src = src.repeat(N_rcv, 0)
+            rcv = np.tile(receivers, (N_src, 1))
+                            
+            out = ttcrpy_grid.raytrace(src.astype('double'), rcv.astype('double'), return_rays=return_rays)
+            
+            if return_rays:
+                tt, rays = out
+                ray_list_sources.append(rays)
+            else:
+                tt = out
+            tt_list[i] = tt
+            
+            if return_tt_field:
+                            
+                tt_field = pykonal.fields.ScalarField3D()
+                
+                tt_field.min_coords     = self.min_coords
+                tt_field.node_intervals = self.node_intervals
+                tt_field.npts           = self.npts
+                tt_field.values         = ttcrpy_grid.get_grid_traveltimes()[:, None, :]
+                tt_field_list.append(tt_field)
+            
+            
+        out = [tt_list]
         if return_rays: out.append(ray_list_sources)
         if return_tt_field: out.append(tt_field_list)
             
@@ -105,26 +148,34 @@ class TTHelper_2D():
         self, sources, receivers,
         return_rays=False,
         return_tt_field=False,
-        solver='pykonal'):
+        solver='pykonal',
+        **kwargs):
+        
+        sources = np.array(sources) if not type(sources) == torch.Tensor else sources.numpy()
+        if len(sources.shape) == 1:
+            sources = sources[None, :]
+            
+        receivers = np.array(receivers) if not type(receivers) == torch.Tensor else receivers.numpy()
+        if len(receivers.shape) == 1:
+            receivers = receivers[None, :]
         
         if solver == 'pykonal':
-            
             if not pykonal_installed:
                 raise ImportError('Pykonal is not installed.')
             
-            if not self.cell_velocity:
-                raise ValueError('Pykonal only supports cell slowness.')
+            if self.cell_velocity:
+                raise ValueError('Pykonal only supports node velocities.')
 
             return self._forward_pykonal(
-                sources, receivers, return_rays=return_rays, return_tt_field=return_tt_field)
+                sources, receivers, return_rays=return_rays, return_tt_field=return_tt_field, **kwargs)
         
         
-        if solver == 'ttcrpy':
-            
+        if solver == 'ttcrpy':        
             if not ttcrpy_installed:
                 raise ImportError('ttcrpy is not installed.')
         
-            raise NotImplementedError('ttcrpy is not implemented yet.')
+            return self._forward_ttcrpy(
+                sources, receivers, return_rays=return_rays, return_tt_field=return_tt_field, **kwargs)
         
     def plot_velocity_model(self, ax=None, colorbar=None, **kwargs):
         
@@ -141,6 +192,9 @@ class TTHelper_2D():
                 plt.colorbar(cbar, ax=ax, label='Velocity [m/s]', shrink=0.5)
             elif type(colorbar) == dict:
                 plt.colorbar(cbar, ax=ax, **colorbar)
+        
+        ax.set_xlim(self.x[0], self.x[-1])
+        ax.set_ylim(self.z[-1], self.z[0])
         
         return ax
     
@@ -203,7 +257,7 @@ class TTHelper_2D():
                 if kwargs == {}:
                     kwargs = dict(color='k', linewidth=0.5, alpha=0.5)
                             
-                ax.plot(ray_i_j[:, 0], ray_i_j[:, 2], **kwargs)
+                ax.plot(ray_i_j[:, 0], ray_i_j[:, 1], **kwargs)
                     
         return ax
     
@@ -232,13 +286,9 @@ class TTHelper_2D():
             if kwargs == {}:
                 kwargs = dict(cmap='viridis', alpha=0.5)
             
-            ax.contour(tt_field_i.values[:, 0, :].T, **kwargs)
+            ax.contour(self.x, self.z, tt_field_i.values[:, 0, :].T, extent=[self.x[0], self.x[-1], self.z[-1], self.z[0]], **kwargs)
         
         return ax
-
-
-        
-        
         
 
 def velocity_grid_constructor(x, z, method='gradient', grid=True, **kwargs):
