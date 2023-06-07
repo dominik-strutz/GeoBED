@@ -23,6 +23,6 @@ setup(name='geobed',
             # 'plotting':   'matplotlib',
             'raytracing': ['pykonal', 'ttcrpy', 'vtk'], # vtk necessary for ttrcpy but not installed by default
             'pyprop8':    'pyprop8',
-            'full':      ['pykonal', 'ttcrpy', 'vtk', 'segyio', ], # for convenience if I make a new environment
+            'full':      ['pykonal', 'ttcrpy', 'vtk', 'segyio', 'seaborn'], # for convenience if I make a new environment
             }
       )
