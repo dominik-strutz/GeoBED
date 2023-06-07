@@ -3,3 +3,4 @@ from .design2data_helpers import *
 from .eig import *
 from .optim import *
 from .utils import *
+from .guides import *
