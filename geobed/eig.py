@@ -23,10 +23,10 @@ def nmc(self, design, N, M=-1,
     #     else:
     #         total_samples += (M_prime+1) * N
     
+    data_samples = self.get_forward_samples(design, total_samples)
+
     if not memory_efficient:
     
-        data_samples = self.get_forward_samples(design, total_samples)
-
         if data_samples == None:
             return torch.tensor(torch.nan), None
 
@@ -49,8 +49,6 @@ def nmc(self, design, N, M=-1,
     else:
         
         if reuse_M_samples:
-            data_samples = self.get_forward_samples(design, total_samples)
-            
             N_samples = data_samples[:N]
             M_samples = data_samples[N:]
             
@@ -77,9 +75,9 @@ def nmc(self, design, N, M=-1,
 
 
 def dn(self, design, N=None, worker_id=None):
-                
-    #TODO: Implement determinant of std errors for design dependent gaussian
+
     #TODO: Implement test for gaussian noise and design independent noise
+    #TODO: Implement determinant of std errors for design dependent gaussian
     
     N = N if not N == None else self.n_prior
     
@@ -119,7 +117,6 @@ def dn(self, design, N=None, worker_id=None):
     out_dict = {'N': N}
     
     return eig, out_dict
-
 
 def variational_marginal(
     self,

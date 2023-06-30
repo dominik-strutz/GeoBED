@@ -4,12 +4,19 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch import distributions as dist
+from sklearn.mixture import GaussianMixture, BayesianGaussianMixture
 
 import zuko
 
 # a lot more complicated than necessary since I had to reimplement zuko.flows.FlowModule since dill cant handle abc abstract classes
 class GMM_guide(torch.nn.Module):
-    def __init__(self, data_samples, **kwargs):
+    def __init__(
+        self,
+        data_samples,
+        components,
+        init_method=None,
+        **kwargs):
+        
         torch.manual_seed(0)
         data_mean = torch.mean(data_samples, dim=0)
         data_std = torch.std(data_samples, dim=0)
@@ -17,9 +24,39 @@ class GMM_guide(torch.nn.Module):
     
         super().__init__()
     
-        self.base = zuko.flows.GMM(features=features, **kwargs)
-        self.base.phi[1].data = (data_samples[:kwargs['components']]-data_mean)/data_std
+        self.base = zuko.flows.GMM(features=features, components=components, **kwargs)
                 
+        
+        if init_method == None:
+            self.base.phi[1].data = (data_samples[:components]-data_mean)/data_std
+        elif type(init_method) == dict:
+            
+            normalised_data_samples = (data_samples-data_mean)/data_std
+            
+            import warnings
+            from sklearn.exceptions import ConvergenceWarning
+
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", category=ConvergenceWarning)
+            
+                gm = GaussianMixture(
+                    n_components=components,
+                    random_state=0,
+                    **init_method).fit(X=normalised_data_samples)
+                
+            self.base.phi[0].data = torch.tensor(gm.weights_).float()
+            self.base.phi[1].data = torch.tensor(gm.means_).float()
+            
+            scale_tril = torch.linalg.cholesky(torch.tensor(gm.covariances_))
+            
+            # diagonal elements of the lower triangular matrix
+            self.base.phi[2].data = torch.log(torch.diagonal(scale_tril, dim1=-2, dim2=-1)).float()
+            # off diagonal elements of the lower triangular matrix
+            self.base.phi[3].data = scale_tril[torch.tril(torch.ones_like(scale_tril, dtype=bool), diagonal=-1)].reshape(components, features*(features-1)//2).float()
+                                 
+        else:
+            raise ValueError('Incorrect value for init_method.')
+        
         self.transforms = [zuko.flows.Unconditional(dist.AffineTransform, -data_mean/data_std, 1/data_std, buffer=True),]# buffer=True excludes the parameters from the optimization
     
     def forward(self):

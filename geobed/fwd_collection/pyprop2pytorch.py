@@ -144,7 +144,7 @@ class MT_Lookup_Class(nn.Module):
         if self.derivatives:
             seis        = torch.tensordot(MT, self.lookup_table, dims=([-1], [0]))
             # seismograms dont need to be weighted, derivatives do aparently
-            derivatives = torch.tensordot(MT, self.derivative_table, dims=([-1], [0]))/MT.shape[0]  
+            derivatives = torch.tensordot(MT/(MT.shape[0]), self.derivative_table, dims=([-1], [0]))  
             return seis, derivatives
         
         else:
