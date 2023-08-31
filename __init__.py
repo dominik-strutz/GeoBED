@@ -1,1 +1,1 @@
-import geoboed
+import geobed

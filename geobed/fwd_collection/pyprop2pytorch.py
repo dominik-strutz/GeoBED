@@ -148,7 +148,7 @@ class MT_Lookup_Class(nn.Module):
             return seis, derivatives
         
         else:
-            seis = torch.tensordot(MT, self.lookup_table, dims=([-1], [0]))
+            seis = torch.tensordot(MT.float(), self.lookup_table.float(), dims=([-1], [0]))
             
             if self.output_type == 'vel':
                 seis = torch.diff(seis, prepend=torch.zeros(*seis.shape[:-1], 1))
