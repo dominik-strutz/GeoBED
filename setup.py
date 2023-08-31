@@ -6,7 +6,7 @@ setup(name='geobed',
       author='Dominik Strutz',
       author_email='dominik.strutz@ed.ac.uk',
       license='MIT',
-      packages=['geobed',]         
+      packages=['geobed',],   
       package_dir={'geobed': 'geobed'},
       install_requires=[
             'numpy',
