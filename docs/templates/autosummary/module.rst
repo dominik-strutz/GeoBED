@@ -1,3 +1,5 @@
+{{ fullname | escape | underline}}
+
 .. automodule:: {{ fullname }}
 
    {% block modules %}

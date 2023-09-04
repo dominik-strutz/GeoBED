@@ -4,7 +4,7 @@ GeoBED
 .. toctree::
     :caption: geobed
     :hidden:
-    :maxdepth: 1
+    :maxdepth: 2
 
     api.rst
 

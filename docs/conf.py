@@ -83,15 +83,15 @@ add_function_parentheses = False
 default_role = 'literal'
 exclude_patterns = ['templates']
 html_copy_source = False
+# html_favicon = 'static/logo.svg'
+# html_logo = 'static/logo.svg'
+html_show_sourcelink = False
+html_sourcelink_suffix = ''
+html_static_path = ['static']
 html_css_files = [
     'custom.css',
     'https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css',
 ]
-html_favicon = 'static/logo.svg'
-html_logo = 'static/logo.svg'
-html_show_sourcelink = False
-html_sourcelink_suffix = ''
-html_static_path = ['static']
 html_theme = 'furo'
 html_theme_options = {
     'footer_icons': [

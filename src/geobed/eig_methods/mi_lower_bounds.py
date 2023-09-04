@@ -29,7 +29,7 @@ def variational_posterior(
     
     bound_kwargs = {}
 
-    return mi_lower_bound(
+    return _mi_lower_bound(
         self,
         design,
         guide,
@@ -72,7 +72,7 @@ def minebed(
     
     bound_kwargs = {}
     
-    return mi_lower_bound(
+    return _mi_lower_bound(
         self,
         design,
         guide,
@@ -115,7 +115,7 @@ def nce(
     
     bound_kwargs={'K': K}
     
-    return mi_lower_bound(
+    return _mi_lower_bound(
         self,
         design,
         guide,
@@ -158,7 +158,7 @@ def flo(
     
     bound_kwargs={'K': K}
     
-    return mi_lower_bound(
+    return _mi_lower_bound(
         self,
         design,
         guide,
@@ -180,7 +180,7 @@ def flo(
         )
 
 
-def mi_lower_bound(
+def _mi_lower_bound(
     self,
     design,
     guide,
@@ -226,13 +226,13 @@ def mi_lower_bound(
         batch_size=n_batch, shuffle=True)
     
     if bound == 'variational_posterior':
-        loss_function = variational_posterior_loss
+        loss_function = _variational_posterior_loss
     elif bound == 'minebed':
-        loss_function = minebed_loss
+        loss_function = _minebed_loss
     elif bound == 'nce':
-        loss_function = nce_loss
+        loss_function = _nce_loss
     elif bound == 'flo':
-        loss_function = FLO_loss
+        loss_function = _FLO_loss
     else:
         raise NotImplementedError('Bound not implemented yet')
     
@@ -294,7 +294,7 @@ def mi_lower_bound(
     return eig, out_dict
         
     
-def variational_posterior_loss(guide, model_batch, data_batch, prior_entropy=None):
+def _variational_posterior_loss(guide, model_batch, data_batch, prior_entropy=None):
     
     if prior_entropy is not None:
         return prior_entropy + guide.log_prob(model_batch, data_batch).mean(dim=0)
@@ -302,7 +302,7 @@ def variational_posterior_loss(guide, model_batch, data_batch, prior_entropy=Non
         return guide.log_prob(model_batch, data_batch).mean(dim=0)
 
 
-def minebed_loss(guide, model_batch, data_batch, prior_entropy=None):
+def _minebed_loss(guide, model_batch, data_batch, prior_entropy=None):
     '''
     Taken from: https://github.com/stevenkleinegesse/GradBED/blob/main/gradbed/bounds/nwj.py
     '''
@@ -325,7 +325,7 @@ def minebed_loss(guide, model_batch, data_batch, prior_entropy=None):
     # we want to maximize the lower bound; PyTorch minimizes
     return mi_ma
 
-def nce_loss(guide, x_sample, y_sample, prior_entropy=None, mode='posterior', K=None):
+def _nce_loss(guide, x_sample, y_sample, prior_entropy=None, mode='posterior', K=None):
     
     if K is None:
         if mode == 'likelihood':
@@ -381,7 +381,7 @@ def nce_loss(guide, x_sample, y_sample, prior_entropy=None, mode='posterior', K=
         return mi
 
 
-def FLO_loss(guide, x_sample, y_sample, prior_entropy=None, K=10):
+def _FLO_loss(guide, x_sample, y_sample, prior_entropy=None, K=10):
     '''taken from: https://github.com/qingguo666/FLO'''
     
     x = x_sample
