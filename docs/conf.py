@@ -143,3 +143,4 @@ def edit_html(app, exception):
 
 def setup(app):
     app.connect('build-finished', edit_html)
+    app.add_css_file('static/custom.css')  # may also be an URL

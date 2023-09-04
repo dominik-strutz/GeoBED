@@ -2,6 +2,7 @@ import os
 import pickle
 import time
 import contextlib
+from typing import Union
 
 import torch
 import torch.distributions as dist
@@ -128,22 +129,26 @@ class SampleDistribution():
     
 
 class BED_Class():
-
+    r"""
+    A class that represents a Bayesian experimental design problem. It contains the forward function, the prior distributions of the model and nuisance parameters, and the observation noise distribution. It also contains methods to calculate the expected information gain (EIG) of a design.
+        
+    Arguments:
+        forward_function: A function that takes in a design and model (and nuisance) parameters and returns a tensor of data samples. The output can either be a tensor of data samples or a dictionary with the key 'data' and value being a tensor of data samples. The shape of the tensor of data samples should be either (n_model_samples, n_nuisance_samples, n_data_samples) or (n_model_samples, n_data_samples) if no nuisance parameters are present.
+        m_prior_dist: A distribution of model parameters. If a tensor is provided, it is assumed to be a set of samples from the distribution. The distribution is only required to have a sample method. A log_prob method is required for some EIG methods and for the calculation of the entropy of the prior distribution if it is not provided.
+        nuisance_dist: A distribution of nuisance parameters. Can be a dependent distribution. If a tensor is provided, it is assumed to be a set of samples from the distribution. The distribution is only required to have a sample method. A log_prob method is required for some EIG methods and for the calculation of the entropy of the nuisance distribution if it is not provided. If a callable is provided, it is assumed to be a function that takes in a tensor of model parameters and returns a conditional distribution of nuisance parameters.
+        obs_noise_dist: A distribution of observation noise. Takes in a tensor of data samples and returns a distribution of data samples. If None, a delta distribution is used, which is equivalent to no observation noise and indicates an implicit observation noise distribution through the forward function. Is required for some EIG methods.
+        target_forward_function: A function that takes in a design and model parameters and returns a tensor of data samples. Is used for interrogation problems in which a function of the model (and nuisance) parameters is of interest. If None, the function corresponds to a identity function of the model parameters.
+    """
     # The __init__ method may be documented in either the class level
     # docstring, or as a docstring on the __init__ method itself.
-    r"""
-    Class for Bayesian Experimental Design (BED) optimisation.    
-    """
-
     def __init__(
         self,
-        forward_function,
-        m_prior_dist,
-        nuisance_dist = None,
-        obs_noise_dist = None,
-        target_forward_function = None,
+        forward_function: callable,
+        m_prior_dist: Distribution,
+        nuisance_dist: Union[Distribution, callable] = None,
+        obs_noise_dist: callable = None,
+        target_forward_function: callable = None,
         ):
-
         if callable(forward_function):   
             self.forward_function = Dummy_Foward_Class(forward_function)
         else:
@@ -198,27 +203,21 @@ class BED_Class():
             'variational_marginal_likelihood',
             'variational_posterior', 'minebed', 'nce', 'flo']
     
-    def get_target_samples(
-        self,
-        sample_shape: int,
-        random_seed_model=None,
-        ) -> Tensor:
-        r'''
-        Test documentation for method
-        '''
-        
-        
-        if self.target_forward_function is None:
-            raise ValueError("Target forward function is not defined")
-        
-        return self.target_forward_function(self.get_m_prior_samples(sample_shape, random_seed_model))
-    
     def get_m_prior_samples(
         self,
-        sample_shape,
-        random_seed=None,
+        sample_shape: Union[int, tuple] = 1,
+        random_seed: int = None,
         ) -> Tensor:
+        r"""
+        Returns samples from the model paramete prior distribution.
         
+        Arguments:
+            sample_shape: The number of samples to return. If an integer is provided, the shape is (sample_shape, n_model_parameters). If a tuple is provided, the shape is (\*sample_shape, n_model_parameters). Defaults to 1.
+            random_seed: The random seed to use for sampling from the prior distribution. Defaults to None.
+        
+        Returns:
+            Samples from the model parameter prior distribution.
+        """    
         if type(sample_shape) == int:
             sample_shape = (sample_shape,)
         
@@ -229,11 +228,23 @@ class BED_Class():
         
     def get_nuisance_prior_samples(
         self,
-        model_samples,
-        sample_shape=1,
-        random_seed=None,
+        model_samples: Tensor,
+        sample_shape: Union[int, tuple] = 1,
+        random_seed: int = None,
         ) -> Tensor:
-                
+
+        r"""
+        This function returns samples from the nuisance parameter prior distribution (conditional on the model parameters).
+        
+        Args:
+            model_samples: Samples from the model parameter prior distribution on which the nuisance parameter prior distribution is conditioned if it is dependent. 
+            sample_shape: The number of samples to return. If an integer is provided, the shape is (sample_shape, n_nuisance_parameters). If a tuple is provided, the shape is (\*sample_shape, n_nuisance_parameters). Defaults to 1.
+            random_seed: The random seed to use for sampling from the prior distribution. Defaults to None.
+        
+        Returns:
+            Samples from the nuisance parameter prior distribution (conditional on the model parameters).
+        """
+
         if self.nuisance_dist is None:
             return None
         
@@ -245,6 +256,25 @@ class BED_Class():
             
         return self.nuisance_dist(model_samples).sample(sample_shape).swapaxes(0,1)
 
+    def get_target_prior_samples(
+        self,
+        sample_shape: Union[int, tuple],
+        random_seed_model: int = None,
+        ) -> Tensor:
+        r'''
+        Returns samples from the target distribution.
+        
+        Args:
+            sample_shape: The number of samples to return. If an integer is provided, the shape is (sample_shape, n_target_parameters). If a tuple is provided, the shape is (\*sample_shape, n_target_parameters).
+            random_seed_model: The random seed to use for sampling from the prior distribution. Defaults to None.
+        
+        Returns:
+            Samples from the target distribution.
+        '''
+        if self.target_forward_function is None:
+            raise ValueError("Target forward function is not defined")
+        
+        return self.target_forward_function(self.get_m_prior_samples(sample_shape, random_seed_model))
      
     def _get_forward_function_samples(
         self,

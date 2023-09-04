@@ -7,5 +7,5 @@ API
    :toctree: api
    :recursive:
 
-   geobed.core.BED_Class
+   geobed.core
    geobed.eig_methods
