@@ -20,12 +20,12 @@ set_loky_pickler('dill')
 
 from tqdm.autonotebook import tqdm
 
-if 'threads_set' not in locals():
-    torch.set_num_threads(1)
-    torch.set_num_interop_threads(1)
-    os.environ['OMP_NUM_THREADS'] = '1'
-    os.environ['MKL_NUM_THREADS'] = '1'
-    threads_set = True
+# if 'threads_set' not in locals():
+#     torch.set_num_threads(1)
+#     torch.set_num_interop_threads(1)
+#     os.environ['OMP_NUM_THREADS'] = '1'
+#     os.environ['MKL_NUM_THREADS'] = '1'
+#     threads_set = True
 
 class BED_discrete(object):
     

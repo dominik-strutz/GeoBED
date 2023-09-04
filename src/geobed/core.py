@@ -20,13 +20,15 @@ set_loky_pickler('dill')
 
 import logging
 
-if 'threads_set' not in locals():
-    torch.set_num_threads(1)
-    torch.set_num_interop_threads(1)
+from . import eig_methods as EIG_METHODS
+
+if 'THREADS_SET' not in locals():
     os.environ['OMP_NUM_THREADS'] = '1'
     os.environ['MKL_NUM_THREADS'] = '1'
-    threads_set = True
     
+    torch.set_num_threads(1)
+    torch.set_num_interop_threads(1)
+    THREADS_SET = True
 
 @contextlib.contextmanager
 def tqdm_joblib(tqdm_object):
@@ -43,6 +45,10 @@ def tqdm_joblib(tqdm_object):
     finally:
         joblib.parallel.BatchCompletionCallBack = old_batch_callback
         tqdm_object.close()
+
+__all__ = [
+    'BED_Class',
+]
 
 class Delta(Distribution):
     """ Inspired by https://pytorch.org/rl/_modules/torchrl/modules/distributions/continuous.html#Delta """
@@ -123,12 +129,11 @@ class SampleDistribution():
 
 class BED_Class():
 
-    from .eig.nmc import nmc
-    from .eig.dn  import dn
-    from .eig.variational_marginal import variational_marginal
-    from .eig.variational_marginal_likelihood import variational_marginal_likelihood
-    from .eig.mi_lower_bounds import variational_posterior, minebed, nce, flo
-    from .eig.laplace import laplace
+    # The __init__ method may be documented in either the class level
+    # docstring, or as a docstring on the __init__ method itself.
+    r"""
+    Class for Bayesian Experimental Design (BED) optimisation.    
+    """
 
     def __init__(
         self,
@@ -198,6 +203,10 @@ class BED_Class():
         sample_shape: int,
         random_seed_model=None,
         ) -> Tensor:
+        r'''
+        Test documentation for method
+        '''
+        
         
         if self.target_forward_function is None:
             raise ValueError("Target forward function is not defined")
@@ -444,14 +453,16 @@ class BED_Class():
         
         eig_method = eig_method.lower()
         if eig_method in self.eig_methods:
-            eig_calculator = getattr(self, eig_method)
+                                    
+            eig_calculator = getattr(getattr(EIG_METHODS, eig_method), eig_method)
+            
         else:
             raise ValueError(f'Unknown eig method: {eig_method}. Choose from {self.eig_methods}')                                
 
         start_time = time.perf_counter()
 
         if random_seed is not None: torch.manual_seed(random_seed)
-        out = eig_calculator(design, **eig_method_kwargs)
+        out = eig_calculator(self, design, **eig_method_kwargs)
         
         # deal with nan data
         try:

@@ -1,3 +1,7 @@
+r"""Methods for calculating the excpected information gain (EIG)."""
+
+__all__ = ['nmc', 'dn', 'variational_marginal', 'variational_posterior', 'minebed', 'nce', 'FLO', 'mi_lower_bound']
+
 import math
 import torch
 import numpy as np
@@ -6,10 +10,14 @@ from tqdm.autonotebook import tqdm
 
 from .utils import check_batch_epoch
 
+
 def nmc(self, design, N, M=-1,
         reuse_M_samples=False,
         memory_efficient=False,
-        worker_id=None):
+        ):
+    r"""
+    Test docstring
+    """
     
     N = N if not N==-1 else self.n_prior
     M = M if not M==-1 else N

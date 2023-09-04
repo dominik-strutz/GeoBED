@@ -1,3 +1,7 @@
+r"""
+Calculate the expected information gain (EIG) using the :math:`D_N` method.
+"""
+
 import math
 import torch
 import numpy as np
@@ -10,6 +14,9 @@ def dn(
     N:int,
     random_seed:int=None,
     ):
+    r"""
+    Calculate the expected information gain (EIG) using the :math:`D_N` method.
+    """
 
     if (self.nuisance_dist is not None) \
         or self.target_forward_function \

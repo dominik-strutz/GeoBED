@@ -2,7 +2,7 @@ import pytest
 
 import torch
 
-from geobed.continuous.core import *
+from geobed.core import *
 
 TEST_M_PRIOR_DIST = torch.distributions.MultivariateNormal(torch.zeros(3), torch.eye(3))
 TEST_MODEL_SAMPLES = torch.linspace(0, 1, 30).reshape(10,3)
