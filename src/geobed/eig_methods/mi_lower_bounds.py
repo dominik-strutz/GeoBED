@@ -219,7 +219,7 @@ def _mi_lower_bound(
     N_model_samples = model_samples[M:]
     
     M_data_samples = data_samples[:M]
-    N_data_samples = data_samples[M:]
+    N_data_samples = data_samples[M:]    
 
     M_dataloader = torch.utils.data.DataLoader(
         torch.utils.data.TensorDataset(model_samples[:M], data_samples[:M]),

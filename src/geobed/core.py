@@ -9,6 +9,10 @@ import torch.distributions as dist
 from torch import Tensor
 from torch.distributions import Distribution
 
+import warnings
+from tqdm import TqdmExperimentalWarning
+warnings.filterwarnings("ignore", category=TqdmExperimentalWarning)
+
 from tqdm.autonotebook import tqdm
 
 import dill
@@ -20,8 +24,6 @@ from joblib.externals.loky import set_loky_pickler
 set_loky_pickler('dill')
 
 import logging
-
-from . import eig_methods as EIG_METHODS
 
 if 'THREADS_SET' not in locals():
     os.environ['OMP_NUM_THREADS'] = '1'
@@ -48,7 +50,7 @@ def tqdm_joblib(tqdm_object):
         tqdm_object.close()
 
 __all__ = [
-    'BED_Class',
+    'BED',
 ]
 
 class Delta(Distribution):
@@ -78,7 +80,7 @@ class dummy_cond_nuisance_dist():
         if x is None:
             return self.nuisance_dist
         else:
-            return self.nuisance_dist.expand((x.shape[0],))
+            return self.nuisance_dist.expand(x.shape[:-1])
 
 class Obs_Noise_Dist_Wrapper():
     def __init__(self, obs_noise_dist):
@@ -97,16 +99,16 @@ class SampleDistribution():
         self.batch_shape = torch.Size([])
         
     def sample(self, sample_shape: torch.Size([])):
-        
+        if type(sample_shape) == int:
+            sample_shape = torch.Size([sample_shape,])        
         shape = sample_shape + self.batch_shape
-                
         n_samples = torch.prod(torch.tensor(shape))
         out = []
         for i in range(n_samples):
             out.append(next(self._sample_generator))
-        out = torch.stack(out)
-        
-        return out.reshape(shape + self.samples.shape[-1:])
+        out = torch.stack(out) 
+        out = out.reshape(list(sample_shape) + list(self.batch_shape) + list(self.samples.shape[-1:]))
+        return out.squeeze(0)
     
     def expand(self, batch_shape):
         self.batch_shape = batch_shape
@@ -128,7 +130,7 @@ class SampleDistribution():
     
     
 
-class BED_Class():
+class BED():
     r"""
     A class that represents a Bayesian experimental design problem. It contains the forward function, the prior distributions of the model and nuisance parameters, and the observation noise distribution. It also contains methods to calculate the expected information gain (EIG) of a design.
         
@@ -203,6 +205,15 @@ class BED_Class():
             'variational_marginal_likelihood',
             'variational_posterior', 'minebed', 'nce', 'flo']
     
+    def get_m_prior_dist_entropy(self) -> Tensor:
+        """
+        Returns the entropy of the model parameter prior distribution.
+        
+        Returns:
+            The entropy of the model parameter prior distribution.
+        """
+        return self.m_prior_dist_entropy
+    
     def get_m_prior_samples(
         self,
         sample_shape: Union[int, tuple] = 1,
@@ -212,7 +223,7 @@ class BED_Class():
         Returns samples from the model paramete prior distribution.
         
         Arguments:
-            sample_shape: The number of samples to return. If an integer is provided, the shape is (sample_shape, n_model_parameters). If a tuple is provided, the shape is (\*sample_shape, n_model_parameters). Defaults to 1.
+            sample_shape: The number of samples to return. If an integer is provided, the shape is (sample_shape, dim_model_parameters). If a tuple is provided, the shape is (\*sample_shape, dim_model_parameters). Defaults to 1.
             random_seed: The random seed to use for sampling from the prior distribution. Defaults to None.
         
         Returns:
@@ -238,7 +249,7 @@ class BED_Class():
         
         Args:
             model_samples: Samples from the model parameter prior distribution on which the nuisance parameter prior distribution is conditioned if it is dependent. 
-            sample_shape: The number of samples to return. If an integer is provided, the shape is (sample_shape, n_nuisance_parameters). If a tuple is provided, the shape is (\*sample_shape, n_nuisance_parameters). Defaults to 1.
+            sample_shape: The number of samples to return. If an integer is provided, the shape is (sample_shape, n_model_parameters, dim_nuisance_parameters). If a tuple is provided, the shape is (\*sample_shape, n_model_parameters, dim_nuisance_parameters). Defaults to 1.
             random_seed: The random seed to use for sampling from the prior distribution. Defaults to None.
         
         Returns:
@@ -254,7 +265,7 @@ class BED_Class():
         if random_seed is not None:
             torch.manual_seed(random_seed)
             
-        return self.nuisance_dist(model_samples).sample(sample_shape).swapaxes(0,1)
+        return self.nuisance_dist(model_samples).sample(sample_shape)
 
     def get_target_prior_samples(
         self,
@@ -265,7 +276,7 @@ class BED_Class():
         Returns samples from the target distribution.
         
         Args:
-            sample_shape: The number of samples to return. If an integer is provided, the shape is (sample_shape, n_target_parameters). If a tuple is provided, the shape is (\*sample_shape, n_target_parameters).
+            sample_shape: The number of samples to return. If an integer is provided, the shape is (sample_shape, dim_target_parameters). If a tuple is provided, the shape is (\*sample_shape, dim_target_parameters).
             random_seed_model: The random seed to use for sampling from the prior distribution. Defaults to None.
         
         Returns:
@@ -274,7 +285,10 @@ class BED_Class():
         if self.target_forward_function is None:
             raise ValueError("Target forward function is not defined")
         
-        return self.target_forward_function(self.get_m_prior_samples(sample_shape, random_seed_model))
+        model_samples = self.get_m_prior_samples(sample_shape, random_seed_model)
+        nuisance_samples = self.get_nuisance_prior_samples(model_samples)
+        
+        return self.target_forward_function(model_samples, nuisance_samples)
      
     def _get_forward_function_samples(
         self,
@@ -326,13 +340,28 @@ class BED_Class():
     def get_forward_function_samples(
         self,
         design: Tensor,
-        n_samples: int=None,
-        n_samples_model: int=None,
-        n_samples_nuisance: int=1,
-        random_seed_model=None,
-        random_seed_nuisance=None,
-        return_parameter_samples=False,
-        ) -> Tensor:
+        n_samples: int = None,
+        n_samples_model: int = None,
+        n_samples_nuisance: int = 1,
+        random_seed_model: int = None,
+        random_seed_nuisance: int = None,
+        return_parameter_samples: int = False,
+        ) -> Union[Tensor, tuple]:
+        """
+        Samples model and nuisance parameters from their prior distributions and evaluates the forward function at the design and the sampled parameters.
+
+        Args:
+            design: Tensor describing the experimental design at which the forward function is evaluated.
+            n_samples: Number of samples to return. If nuisance parameters are present, n_samples must be None and n_samples_model must be provided. Defaults to None.
+            n_samples_model: Number of model parameter samples to return. If nuisance parameters are present, n_samples_model must be provided and n_samples must be None. Defaults to None.
+            n_samples_nuisance: Number of nuisance parameter samples to return. Defaults to 1.
+            random_seed_model: Random seed to use for sampling from the model parameter prior distribution. Defaults to None.
+            random_seed_nuisance: Random seed to use for sampling from the nuisance parameter prior distribution. Defaults to None.
+            return_parameter_samples: If True, the model and nuisance parameter used to evaluate the forward function are returned. Defaults to False.
+        Returns:
+            Returns a tensor of data samples of shape (n_samples, n_data_samples) or (n_samples_model, dim_data_samples) if no nuisance parameters are present and (n_samples_model, n_nuisance_samples, dim_data_samples) if nuisance parameters are present. If return_parameter_samples is True, a tuple of tensors is returned. The first element is the tensor of data samples. The second element is a tensor of model parameter samples of shape (n_samples_model, dim_model_parameters). The third element is a tensor of nuisance parameter samples of shape (n_samples_model, n_nuisance_samples, dim_nuisance_parameters) if nuisance parameters are present and None otherwise.
+        """
+        
         
         out = self._get_forward_function_samples(
                 design, n_samples, n_samples_model, n_samples_nuisance, random_seed_model, random_seed_nuisance)
@@ -352,8 +381,23 @@ class BED_Class():
         random_seed_model=None,
         random_seed_nuisance=None,
         return_parameter_samples=False,
-        ) -> Distribution:
-        
+        ) -> Union[Distribution, tuple]:
+        """
+        Samples model and nuisance parameters from their prior distributions, evaluates the forward function at the design and the sampled and returns the data noise distribution.
+
+        Args:
+            design: Tensor describing the experimental design at which the forward function is evaluated.
+            n_samples: Number of samples to return. If nuisance parameters are present, n_samples must be None and n_samples_model must be provided. Defaults to None.
+            n_samples_model: Number of model parameter samples to return. If nuisance parameters are present, n_samples_model must be provided and n_samples must be None. Defaults to None.
+            n_samples_nuisance: Number of nuisance parameter samples to return. Defaults to 1.
+            random_seed_model: Random seed to use for sampling from the model parameter prior distribution. Defaults to None.
+            random_seed_nuisance: Random seed to use for sampling from the nuisance parameter prior distribution. Defaults to None.
+            return_parameter_samples: If True, the model and nuisance parameter used to evaluate the forward function are returned. Defaults to False.
+
+        Returns:
+            Returns a distribution of data samples. If return_parameter_samples is True, a tuple is returned. The first element is the distribution of data samples. The second element is a tensor of model parameter samples of shape (n_samples_model, dim_model_parameters). The third element is a tensor of nuisance parameter samples of shape (n_samples_model, n_nuisance_samples, dim_nuisance_parameters) if nuisance parameters are present and None otherwise.
+
+        """
         fwd_out = self._get_forward_function_samples(
             design,
             n_samples,
@@ -384,13 +428,29 @@ class BED_Class():
         random_seed_likelihood=None,
         return_parameter_samples=False,
         return_distribution=False,
-        ) -> Tensor:
-    
+        ) -> Union[Tensor, tuple]:
+        """
+        Samples model and nuisance parameters from their prior distributions, evaluates the forward function at the design and the sampled and returns samples from the data noise distribution.
+        
+        Args:
+            design: Tensor describing the experimental design at which the forward function is evaluated.
+            n_samples: Number of samples to return. If nuisance parameters are present, n_samples must be None and n_samples_model must be provided. Defaults to None.
+            n_samples_model: Number of model parameter samples to return. If nuisance parameters are present, n_samples_model must be provided and n_samples must be None. Defaults to None.
+            n_samples_nuisance: Number of nuisance parameter samples to return. Defaults to 1.
+            n_likelihood_samples: Number of samples to return from the data noise distribution. Defaults to 1.
+            random_seed_model: Random seed to use for sampling from the model parameter prior distribution. Defaults to None.
+            random_seed_nuisance: Random seed to use for sampling from the nuisance parameter prior distribution. Defaults to None.
+            random_seed_likelihood: Random seed to use for sampling from the data noise distribution. Defaults to None.
+            return_parameter_samples: If True, the model and nuisance parameter used to evaluate the forward function are returned. Defaults to False.
+            return_distribution: If True, the data noise distribution is returned. Defaults to False.
+        
+        Returns:
+            Returns a tensor of data samples of shape (n_likelihood_samples, \*n_nuisance_samples, \*n_model_samples, dim_data_samples) if nuisance parameters are present and (n_likelihood_samples, \*n_model_samples, dim_data_samples) if no nuisance parameters are present. Nuisance parameters dimensions are squeezed if they are of size 1. If return_parameter_samples is True, a tuple of tensors is returned. The first element is the tensor of data samples. The second element is a tensor of model parameter samples of shape (n_samples_model, dim_model_parameters). The third element is a tensor of nuisance parameter samples of shape (n_samples_model, n_nuisance_samples, dim_nuisance_parameters) if nuisance parameters are present and None otherwise. If return_distribution is True, a tuple of tensors is returned. The first element is the tensor of data samples. The second element is the data noise distribution. The third element is a tensor of model parameter samples of shape (n_samples_model, dim_model_parameters). The fourth element is a tensor of nuisance parameter samples of shape (n_samples_model, n_nuisance_samples, dim_nuisance_parameters) if nuisance parameters are present and None otherwise. If both return_parameter_samples and return_distribution are True, the model and nuisance parameter samples are returned last.
+        """
+
         if type(n_likelihood_samples) == int:
-            n_likelihood_samples = (n_likelihood_samples,)    
-        
+            n_likelihood_samples = (n_likelihood_samples,)        
         out = []
-        
         if not return_parameter_samples:
             dist = self.get_foward_model_distribution(
                 design, n_samples, n_samples_model, n_samples_nuisance, random_seed_model, random_seed_nuisance,)
@@ -418,10 +478,34 @@ class BED_Class():
         eig_method_kwargs: dict,
         filename: str=None,
         num_workers: int=1,
-        parallel_library: str='mpire',
-        random_seed=None,
+        parallel_library: str='joblib',
+        random_seed: int=None,
         progress_bar: bool=True,
-        ) -> Tensor:
+        ) -> tuple:
+        """
+        Returns the expected information gain (EIG) of a design or a list of designs. The EIG is calculated using the method specified by eig_method. The method must be one of the following:
+            - 'nmc': Nested Monte Carlo
+            - 'dn': Doubly Nested Monte Carlo
+            - 'laplace': Laplace approximation
+            - 'variational_marginal': Variational marginal
+            - 'variational_marginal_likelihood': Variational marginal likelihood
+            - 'variational_posterior': Variational posterior
+            - 'minebed': Mutual information neural estimator
+            - 'nce': Noise contrastive estimation mutual information estimator
+            - 'flo': Fenchel-Legendre Optimization mutual information estimator
+        
+        For more information on the methods, see the documentation of the methods in the :mod:`geobed.eig_methods` module.
+        
+        Args:
+            design: A tensor of shape (dim_design) describing a single design or a tensor of shape (n_designs, dim_design) describing a list of designs.
+            eig_method: The method used to calculate the EIG. Must be one of the methods listed above.
+            eig_method_kwargs: A dictionary of keyword arguments passed to the EIG method.
+            filename: The filename of a file to save the results to. If the file exists, the results are loaded from the file. If the file does not exist, the results are calculated and saved to the file. Defaults to None.
+            num_workers: The number of workers to use for parallelisation. Defaults to 1.
+            parallel_library: The parallel library to use. Must be either 'mpire' or 'joblib'. Defaults to 'joblib'.
+            random_seed: The random seed to use for sampling from the model and nuisance parameter prior distributions as well as the data noise distribution. Defaults to None.
+            progress_bar: If True, a progress bar is shown. Defaults to True.
+        """
         
         if design.ndim == 1:
             design = design.unsqueeze(0)
@@ -482,10 +566,25 @@ class BED_Class():
     def _calculate_EIG_single(self, design, eig_method, eig_method_kwargs, random_seed=None):
         
         eig_method = eig_method.lower()
-        if eig_method in self.eig_methods:
-                                    
-            eig_calculator = getattr(getattr(EIG_METHODS, eig_method), eig_method)
             
+        if eig_method == 'nmc':
+            from .eig_methods.nmc import nmc as eig_calculator
+        elif eig_method == 'dn':
+            from .eig_methods.dn import dn as eig_calculator                                        
+        elif eig_method == 'laplace':
+            from .eig_methods.laplace import laplace as eig_calculator
+        elif eig_method == 'variational_marginal':
+            from .eig_methods.variational_marginal import variational_marginal as eig_calculator
+        elif eig_method == 'variational_marginal_likelihood':
+            from .eig_methods.variational_marginal_likelihood import variational_marginal_likelihood as eig_calculator
+        elif eig_method == 'variational_posterior':
+            from .eig_methods.mi_lower_bounds import variational_posterior as eig_calculator
+        elif eig_method == 'minebed':
+            from .eig_methods.mi_lower_bounds import minebed as eig_calculator
+        elif eig_method == 'nce':
+            from .eig_methods.mi_lower_bounds import nce as eig_calculator
+        elif eig_method == 'flo':
+            from .eig_methods.mi_lower_bounds import flo as eig_calculator                    
         else:
             raise ValueError(f'Unknown eig method: {eig_method}. Choose from {self.eig_methods}')                                
 

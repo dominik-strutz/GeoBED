@@ -9,3 +9,4 @@ mpire
 joblib
 zuko
 scikit-learn
+pytest
