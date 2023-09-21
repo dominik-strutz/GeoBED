@@ -208,8 +208,9 @@ def _mi_lower_bound(
         raise ValueError(
         'Batch size cant be larger than M. Choose a smaller batch size or a larger M')
         
-    data_samples, model_samples, _ = self.get_forward_model_samples(
-        design, n_samples_model=N+M, return_parameter_samples=True)
+    data_samples, model_samples = self.get_data_likelihood_samples(
+            design, n_model_samples=M
+    )
     
     #TODO maybe change this as this could cause confussion
     if self.target_forward_function is not None:
@@ -321,8 +322,6 @@ def _minebed_loss(guide, model_batch, data_batch, prior_entropy=None):
     Z = torch.tensor(np.exp(1), dtype=torch.float)
     mi_ma = torch.mean(pred_joint) - torch.mean(
         torch.exp(pred_marginals) / Z + torch.log(Z) - 1)
-
-    # we want to maximize the lower bound; PyTorch minimizes
     return mi_ma
 
 def _nce_loss(guide, x_sample, y_sample, prior_entropy=None, mode='posterior', K=None):
@@ -398,6 +397,17 @@ def _FLO_loss(guide, x_sample, y_sample, prior_entropy=None, K=10):
         else:
             K = 1
 
+    g, u = torch.chunk(guide(x,y),2,dim=1)
+    mi_inner = 0
+    
+    for k in range(K):
+        y0 = y[torch.randperm(y.size()[0])]
+        g0, _ = torch.chunk(guide(x,y0),2,dim=1)
+        mi_inner += torch.exp(g0-g)
+    
+    mi_inner = mi_inner/K
+        
+    return -(u + torch.exp(-u)*mi_inner - 1).mean()
          
     # gu = guide(x,y)
     # if isinstance(gu, tuple):
@@ -432,17 +442,6 @@ def _FLO_loss(guide, x_sample, y_sample, prior_entropy=None, K=10):
     
     # return -torch.mean(output)
     
-    g, u = torch.chunk(guide(x,y),2,dim=1)
-    mi = 0
-    
-    for k in range(K):
-        y0 = y[torch.randperm(y.size()[0])]
-        g0, _ = torch.chunk(guide(x,y0),2,dim=1)
-        output = torch.exp(g0-g)
-    
-    mi = mi/K
-        
-    return -(u + torch.exp(-u)*output - 1).mean()
     
     # Works
     # mi = 0

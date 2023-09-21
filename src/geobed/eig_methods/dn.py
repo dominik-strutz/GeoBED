@@ -18,15 +18,16 @@ def dn(
     Calculate the expected information gain (EIG) using the :math:`D_N` method.
     """
 
-    if (self.nuisance_dist is not None) \
-        or self.target_forward_function \
-            or self.implict_obs_noise_dist:
-        raise ValueError(r"$D_N$ method cannot be used with implicit likelihoods.") 
-
     if random_seed is not None:
         torch.manual_seed(random_seed)
+
+    if self.nuisance_dist is not None:
+        raise NotImplementedError(r"$D_N$ method not implemented yet for nuisance parameters")
+    if self.implict_data_likelihood_dist:
+        raise ValueError(r"$D_N$ method cannot be used with implicit observation noise distribution")
         
-    data_likelihoods = self.get_foward_model_distribution(design, N)
+    data_likelihoods, _ = self.get_data_likelihood(
+            design, n_model_samples=N)
     data_samples = data_likelihoods.sample()
 
     D_dim = data_samples.shape[-1]

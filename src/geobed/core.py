@@ -25,13 +25,16 @@ set_loky_pickler('dill')
 
 import logging
 
-if 'THREADS_SET' not in locals():
-    os.environ['OMP_NUM_THREADS'] = '1'
-    os.environ['MKL_NUM_THREADS'] = '1'
-    
-    torch.set_num_threads(1)
-    torch.set_num_interop_threads(1)
-    THREADS_SET = True
+# if 'THREADS_SET' not in locals():
+#     try:
+#         os.environ['OMP_NUM_THREADS'] = '1'
+#         os.environ['MKL_NUM_THREADS'] = '1'
+        
+#         torch.set_num_threads(1)
+#         torch.set_num_interop_threads(1)
+#         THREADS_SET = True
+#     except:
+#         pass
 
 @contextlib.contextmanager
 def tqdm_joblib(tqdm_object):
@@ -128,7 +131,353 @@ class SampleDistribution():
     def log_prob(self, x):
         raise NotImplementedError('Log probability of sample distribution is not defined.')
     
+
+class BED_base():
     
+    def __init__(
+        self,
+        m_prior_dist: Distribution,
+        ):
+        
+       #  Check if either prior samples or prior distribution is provided
+        if type(m_prior_dist) == torch.Tensor:
+            self.m_prior_dist = SampleDistribution(m_prior_dist)
+        else:
+            self.m_prior_dist = m_prior_dist        
+        
+        try:
+            self.m_prior_dist_entropy = self.m_prior_dist.entropy()
+        except:
+            try:
+                ent_samples = self.m_prior_dist.sample( (int(1e6),) )
+                self.m_prior_dist_entropy = -self.m_prior_dist.log_prob(ent_samples).sum(0) / int(1e6)
+                logging.info('''Entropy of prior distribution could not be calculated. Calculating it numerically. 
+                            Any errors will have no effect on the design optimisation.''')
+                del ent_samples
+            except:
+                logging.info('''Entropy of prior distribution could not be calculated. Setting it to zero. 
+                            This will have no effect on the design optimisation.''')
+                self.m_prior_dist_entropy = torch.tensor(0.)
+    
+        self.eig_methods = [
+            'nmc', 'dn',
+            'laplace',
+            'variational_marginal',
+            'variational_marginal_likelihood',
+            'variational_posterior', 'minebed', 'nce', 'flo']
+    
+    def get_m_prior_entropy(self) -> Tensor:
+        """
+        Returns the entropy of the model parameter prior distribution.
+        
+        Returns:
+            The entropy of the model parameter prior distribution.
+        """
+        return self.m_prior_dist_entropy        
+
+    def get_m_prior_samples(
+        self,
+        sample_shape: Union[int, tuple] = 1,
+        random_seed: int = None,
+        ) -> Tensor:
+        r"""
+        Returns samples from the model paramete prior distribution.
+        
+        Arguments:
+            sample_shape: The number of samples to return. If an integer is provided, the shape is (sample_shape, dim_model_parameters). If a tuple is provided, the shape is (\*sample_shape, dim_model_parameters). Defaults to 1.
+            random_seed: The random seed to use for sampling from the prior distribution. Defaults to None.
+        
+        Returns:
+            Samples from the model parameter prior distribution.
+        """    
+        if type(sample_shape) == int:
+            sample_shape = (sample_shape,)
+        
+        if random_seed is not None:
+            torch.manual_seed(random_seed)
+
+        return self.m_prior_dist.sample(sample_shape)
+    
+    def calculate_EIG(
+        self,
+        design: Tensor,
+        eig_method: str,
+        eig_method_kwargs: dict,
+        filename: str=None,
+        num_workers: int=1,
+        parallel_library: str='joblib',
+        random_seed: int=None,
+        progress_bar: bool=True,
+        ) -> tuple:
+        """
+        Returns the expected information gain (EIG) of a design or a list of designs. The EIG is calculated using the method specified by eig_method. The method must be one of the following:
+            - 'nmc': Nested Monte Carlo
+            - 'dn': Doubly Nested Monte Carlo
+            - 'laplace': Laplace approximation
+            - 'variational_marginal': Variational marginal
+            - 'variational_marginal_likelihood': Variational marginal likelihood
+            - 'variational_posterior': Variational posterior
+            - 'minebed': Mutual information neural estimator
+            - 'nce': Noise contrastive estimation mutual information estimator
+            - 'flo': Fenchel-Legendre Optimization mutual information estimator
+        
+        For more information on the methods, see the documentation of the methods in the :mod:`geobed.eig_methods` module.
+        
+        Args:
+            design: A tensor of shape (dim_design) describing a single design or a tensor of shape (n_designs, dim_design) describing a list of designs.
+            eig_method: The method used to calculate the EIG. Must be one of the methods listed above.
+            eig_method_kwargs: A dictionary of keyword arguments passed to the EIG method.
+            filename: The filename of a file to save the results to. If the file exists, the results are loaded from the file. If the file does not exist, the results are calculated and saved to the file. Defaults to None.
+            num_workers: The number of workers to use for parallelisation. Defaults to 1.
+            parallel_library: The parallel library to use. Must be either 'mpire' or 'joblib'. Defaults to 'joblib'.
+            random_seed: The random seed to use for sampling from the model and nuisance parameter prior distributions as well as the data noise distribution. Defaults to None.
+            progress_bar: If True, a progress bar is shown. Defaults to True.
+        """
+        
+        if design.ndim == 1:
+            design = design.unsqueeze(0)
+        if not isinstance(eig_method, list):
+            eig_method = [eig_method] * len(design)
+        if not isinstance(eig_method_kwargs, list):
+            eig_method_kwargs = [eig_method_kwargs] * len(design)
+                        
+        if filename is not None:
+            if os.path.isfile(filename):
+                logging.info(f'Loading results from {filename}')
+                with open(filename, 'rb') as f:
+                    out = pickle.load(f)
+                return out
+            else:
+                logging.info(f'File {filename} does not exist. Calculating results.')
+        
+        results = []
+        if num_workers == 1 or len(design) == 1:
+            if len(design) == 1:
+                progress_bar = False
+            
+            for i, d in tqdm(enumerate(design), disable=not progress_bar, desc='Calculating eig', position=1, total=len(design)):
+                out = self._calculate_EIG_single(d, eig_method[i], eig_method_kwargs[i], random_seed)
+                results.append(out)
+                del out
+        else:
+            if parallel_library == 'mpire':
+                def worker(worker_id, shared_self, d, m, m_kwargs):
+                    return shared_self._calculate_EIG_single(d, m, m_kwargs, random_seed)
+                # spawn method is necessary for multiprocessing to be compatibal with pytorch and windows
+                with Pool(n_jobs=num_workers, start_method='spawn', shared_objects=self, use_dill=True, pass_worker_id=True) as pool:
+                    results = pool.map(worker, list(zip(design, eig_method, eig_method_kwargs)),
+                                    progress_bar= progress_bar, progress_bar_options={'position': 1, 'desc': 'Calculating eig',})
+                    
+            elif parallel_library == 'joblib':
+                def worker(d, m, m_kwargs):
+                    return self._calculate_EIG_single(d, m, m_kwargs, random_seed)
+
+                with tqdm_joblib(tqdm(desc="Calculating eig", position=1, total=len(design), disable=not progress_bar)) as progress_bar:
+                    results = Parallel(n_jobs=num_workers)(
+                        delayed(worker)(design, method, method_kwargs) 
+                        for design, method, method_kwargs 
+                        in list(zip(design, eig_method, eig_method_kwargs)))
+            
+            else:
+                raise ValueError(f'Unknown parallel library: {parallel_library}. Choose from mpire or joblib')
+        
+        results = list(zip(*results))          
+        results[0] = torch.stack(results[0])
+        
+        if filename is not None:
+            with open(filename, 'wb') as f:
+                pickle.dump(results, f)
+        
+        return results
+    
+    def _calculate_EIG_single(self, design, eig_method, eig_method_kwargs, random_seed=None):
+        
+        eig_method = eig_method.lower()
+            
+        if eig_method == 'nmc':
+            from .eig_methods.nmc import nmc as eig_calculator
+        elif eig_method == 'dn':
+            from .eig_methods.dn import dn as eig_calculator                                        
+        elif eig_method == 'laplace':
+            from .eig_methods.laplace import laplace as eig_calculator
+        elif eig_method == 'variational_marginal':
+            from .eig_methods.variational_marginal import variational_marginal as eig_calculator
+        elif eig_method == 'variational_marginal_likelihood':
+            from .eig_methods.variational_marginal_likelihood import variational_marginal_likelihood as eig_calculator
+        elif eig_method == 'variational_posterior':
+            from .eig_methods.mi_lower_bounds import variational_posterior as eig_calculator
+        elif eig_method == 'minebed':
+            from .eig_methods.mi_lower_bounds import minebed as eig_calculator
+        elif eig_method == 'nce':
+            from .eig_methods.mi_lower_bounds import nce as eig_calculator
+        elif eig_method == 'flo':
+            from .eig_methods.mi_lower_bounds import flo as eig_calculator                    
+        else:
+            raise ValueError(f'Unknown eig method: {eig_method}. Choose from {self.eig_methods}')                                
+
+        start_time = time.perf_counter()
+
+        if random_seed is not None: torch.manual_seed(random_seed)
+        out = eig_calculator(self, design, **eig_method_kwargs)
+        
+        # deal with nan data
+        try:
+            out[1]['wall_time'] = time.perf_counter() - start_time
+        except TypeError:
+            pass
+    
+        return  out
+    
+
+class BED_base_explicit(BED_base):
+    def __init__(
+        self,
+        m_prior_dist: Union[Distribution, Tensor],
+        data_likelihood_dist: callable):
+        
+        super().__init__(m_prior_dist)
+        
+        self.data_likelihood_dist = data_likelihood_dist
+        self.nuisance_dist = None
+        self.implict_data_likelihood_dist = False
+        
+        
+    def get_data_likelihood(
+        self,
+        design: Tensor,
+        n_model_samples: int=1,
+        random_seed_model: int=None,
+        ) -> Distribution:
+        """
+        Samples model parameters from their prior distribution and evaluates the data likelihood at the design and the sampled parameters.
+        
+        Args:
+            design: Tensor describing the experimental design at which the data likelihood is evaluated.
+            n_model_samples: Number of model parameter samples to return. Defaults to 1.
+            random_seed_model: Random seed to use for sampling from the model parameter prior distribution. Defaults to None.
+        
+        Returns:
+            Returns a distribution of data samples.
+        """
+        model_samples = self.get_m_prior_samples(n_model_samples, random_seed_model)
+        return self.data_likelihood_dist(model_samples, design=design), model_samples
+        
+    def get_data_likelihood_samples(
+        self,
+        design: Tensor,
+        n_model_samples: int=1,
+        n_likelihood_samples: int=1,
+        random_seed_model: int=None,
+        random_seed_likelihood: int=None,
+        ) -> Tensor:
+        """
+        Samples model parameters from their prior distribution, evaluates the data likelihood at the design and the sampled model parameters and returns samples from the data likelihood distribution.
+        
+        Args:
+            design: Tensor describing the experimental design at which the data likelihood is evaluated.
+            n_model_samples: Number of model parameter samples to return. Defaults to 1.
+            n_likelihood_samples: Number of samples to return from the data likelihood distribution. Defaults to 1.
+            random_seed_model: Random seed to use for sampling from the model parameter prior distribution. Defaults to None.
+            random_seed_likelihood: Random seed to use for sampling from the data likelihood distribution. Defaults to None.
+        
+        Returns:
+            Returns a tensor of data samples of shape (n_likelihood_samples, \*n_model_samples, dim_data_samples).
+        """
+        if type(n_likelihood_samples) == int:
+            n_likelihood_samples = (n_likelihood_samples,)
+            
+        data_likelihood, model_samples = self.get_data_likelihood(design, n_model_samples, random_seed_model)
+        
+        if random_seed_likelihood is not None:
+            torch.manual_seed(random_seed_likelihood)
+        
+        return data_likelihood.sample(n_likelihood_samples).squeeze(0), model_samples
+
+class BED_base_nuisance(BED_base_explicit):
+    
+    def __init__(
+        self,
+        m_prior_dist: Union[Distribution, Tensor],
+        nuisance_dist: Union[Distribution, callable, Tensor],
+        data_likelihood_dist: callable,
+        ):
+        
+        super().__init__(m_prior_dist, data_likelihood_dist)
+        
+        # Enforce that nuisance distribution might be conditional on model parameters
+        if not callable(nuisance_dist):
+            # Check if nuisance samples or nuisance distribution is provided
+            if type(nuisance_dist) == torch.Tensor:
+                nuisance_dist = SampleDistribution(nuisance_dist)
+            self.nuisance_dist = dummy_cond_nuisance_dist(nuisance_dist)
+        else:
+            self.nuisance_dist = nuisance_dist         
+            
+            
+        self.independent_nuisance_parameters = False
+    
+    def get_nuisance_samples(
+        self,
+        model_samples: Tensor,
+        n_nuisance_samples: int=1,
+        random_seed: int=None,
+        ) -> Tensor:
+        """
+        Samples nuisance parameters from their prior distribution.
+        
+        Args:
+            model_samples: Tensor of model parameter samples of shape (n_model_samples, dim_model_parameters).
+            n_nuisance_samples: Number of nuisance parameter samples to return. Defaults to 1.
+            random_seed_nuisance: Random seed to use for sampling from the nuisance parameter prior distribution. Defaults to None.
+        
+        Returns:
+            Returns a tensor of nuisance parameter samples of shape (n_nuisance_samples, \*n_model_samples, dim_nuisance_parameters).
+        """
+        if type(n_nuisance_samples) == int:
+            n_nuisance_samples = (n_nuisance_samples,)
+        
+        if random_seed is not None:
+            torch.manual_seed(random_seed)
+        
+        return self.nuisance_dist(model_samples).sample(n_nuisance_samples)
+        
+    
+    def get_data_likelihood(
+        self,
+        design: Tensor,
+        n_model_samples: int=1,
+        n_nuisance_samples: int=1,
+        random_seed_model: int=None,
+        random_seed_nuisance: int=None,
+        ) -> Distribution:
+        """
+        Samples model and nuisance parameters from their prior distributions and evaluates the data likelihood at the design and the sampled parameters.
+        
+        Args:
+            design: Tensor describing the experimental design at which the data likelihood is evaluated.
+            n_model_samples: Number of model parameter samples to return. Defaults to 1.
+            n_nuisance_samples: Number of nuisance parameter samples to return. Defaults to 1.
+            random_seed_model: Random seed to use for sampling from the model parameter prior distribution. Defaults to None.
+            random_seed_nuisance: Random seed to use for sampling from the nuisance parameter prior distribution. Defaults to None.
+        
+        Returns:
+            Returns a distribution of data samples.
+        """
+        model_samples = self.get_m_prior_samples(n_model_samples, random_seed_model)
+        
+        nuisance_samples = self.get_nuisance_samples(model_samples, n_nuisance_samples, random_seed_nuisance)
+        
+        return self.data_likelihood_dist(model_samples, nuisance_samples, design=design), model_samples, nuisance_samples
+
+
+class BED_base_implicit(BED_base):
+    pass
+
+
+
+
+
+
 
 class BED():
     r"""
@@ -287,6 +636,9 @@ class BED():
         
         model_samples = self.get_m_prior_samples(sample_shape, random_seed_model)
         nuisance_samples = self.get_nuisance_prior_samples(model_samples)
+        
+        print(model_samples)
+        print(nuisance_samples)
         
         return self.target_forward_function(model_samples, nuisance_samples)
      

@@ -25,19 +25,28 @@ def variational_marginal(
     return_train_loss=True,
     return_test_loss=True,
     progress_bar=False,
+    random_seed=None,
     ):
 
-    if (self.nuisance_dist is not None) \
-        or self.target_forward_function \
-            or self.implict_obs_noise_dist:
-        raise ValueError("Variational marginal method method cannot be used with implicit likelihoods. Use the variational marginal likelihood method instead") 
+    if random_seed is not None:
+        torch.manual_seed(random_seed)
+
+    if self.nuisance_dist is not None:
+        raise NotImplementedError("Variational marginal method not implemented yet for nuisance parameters")
+    if self.implict_data_likelihood_dist:
+        raise ValueError("Variational marginal method cannot be used with implicit observation noise distribution")
 
     if n_batch > M: 
         raise ValueError(
         'Batch size cant be larger than M. Choose a smaller batch size or a larger M')
     
-    N_data_samples, N_data_likelihoods = self.get_forward_model_samples(design, n_samples_model=N, return_distribution=True)
-    M_data_samples, _ = self.get_forward_model_samples(design, n_samples_model=M, return_distribution=True)
+    N_data_likelihoods, _ = self.get_data_likelihood(
+            design, n_model_samples=N)
+    N_data_samples = N_data_likelihoods.sample()
+    
+    M_data_samples, _ = self.get_data_likelihood_samples(
+            design, n_model_samples=M
+    )
     
     M_dataloader = torch.utils.data.DataLoader(
         torch.utils.data.TensorDataset(M_data_samples),
@@ -54,7 +63,6 @@ def variational_marginal(
         pbar = tqdm(range(n_epochs), desc='Epoch 0/0, Loss: 0.000')
         
     for e in range(n_epochs):
-        
         for batch_ndx, batch in enumerate(M_dataloader):
             batch = batch[0].detach()
             optimizer.zero_grad()
