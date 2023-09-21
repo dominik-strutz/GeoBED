@@ -89,7 +89,10 @@ class TTHelper_2D():
         out = [tt_list]
         if return_rays: out.append(ray_list_sources)
         if return_tt_field: out.append(tt_field_list)
-            
+
+        if len(out) == 1:
+            return out[0]
+        
         return out
     
     def _forward_ttcrpy(
@@ -141,7 +144,10 @@ class TTHelper_2D():
         out = [tt_list]
         if return_rays: out.append(ray_list_sources)
         if return_tt_field: out.append(tt_field_list)
-            
+
+        if len(out) == 1:
+            return out[0]
+        
         return out
         
     def calculate_tt(
@@ -209,7 +215,9 @@ class TTHelper_2D():
         if kwargs.get('marker') is None: kwargs['marker'] = 10
         if kwargs.get('color') is None: kwargs['color'] = 'r'
         if kwargs.get('s') is None: kwargs['s'] = 100
-        kwargs['clip_on'] = False
+        if kwargs.get('linewidth') is None: kwargs['linewidth'] = None
+        if kwargs.get('clip_on') is None: kwargs['clip_on'] = False
+        if kwargs.get('zorder') is None: kwargs['zorder'] = 1000
         
         ax.scatter(receivers[:, 0], receivers[:, 1], **kwargs)
         
