@@ -103,11 +103,11 @@ class TTHelper():
                     if ray_kwargs is None:
                         for rec in receivers:
                             ray_coords = solver.traveltime.trace_ray( np.array( [rec[0], 0, rec[1]] , dtype=float) )
-                            ax.plot(ray_coords[:, 0]*1e-3, ray_coords[:, 2]*1e-3, 'k--', alpha=0.4, linewidth=1.0, zorder=-1)
+                            ax.plot(ray_coords[:, 0]*1e-3, ray_coords[:, 2]*1e-3, 'k--', alpha=0.4, linewidth=1.0, zorder=2)
                     if ray_kwargs is not None:
                         for rec in receivers:
                             ray_coords = solver.traveltime.trace_ray( np.array( [rec[0], 0, rec[1]] , dtype=float) )
-                            ax.plot(ray_coords[:, 0]*1e-3, ray_coords[:, 2]*1e-3, **ray_kwargs)
+                            ax.plot(ray_coords[:, 0]*1e-3, ray_coords[:, 2]*1e-3, **ray_kwargs,zorder=2)
                     
                     ax.plot([], [], 'k--', linewidth=1.0, alpha=0.7, label='first arrival rays')
             

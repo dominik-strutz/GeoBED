@@ -12,42 +12,85 @@ def laplace(
     laplace_type:str = 'model',
     random_seed:int=None,
     ):
-    
-    if (self.nuisance_dist is not None) \
-        or self.target_forward_function \
-            or self.implict_obs_noise_dist:
-        raise ValueError("Laplace method cannot be used with implicit likelihoods.") 
+            
+    if self.implict_data_likelihood_dist:
+        raise ValueError("Laplace method cannot be used with implicit likelihoods.")
     
     if random_seed is not None:
         torch.manual_seed(random_seed)
     
     model_samples = self.get_m_prior_samples(N)
-    data_samples
+    d = model_samples.shape[-1]
     
-    
-    print(model_samples.shape)
-    
-    # def 
-    
+    model_jacobian = None
+    if self.nuisance_dist is not None:
+        nuisance_samples = self.get_nuisance_samples(model_samples, 1).squeeze(0)
+
+        if hasattr(self.data_likelihood_dist, 'model_jacobian'):
+            model_jacobian = self.data_likelihood_dist.model_jacobian(
+            model_samples, nuisance_samples, design=design)
+
+        model_samples = zip(
+            model_samples.unsqueeze(1), nuisance_samples.unsqueeze(1))
+    else:
+        if hasattr(self.data_likelihood_dist, 'model_jacobian'):
+                        
+            model_jacobian = self.data_likelihood_dist.model_jacobian(
+            model_samples, design=design)
         
+        model_samples = model_samples.unsqueeze(1)
+    
+    IG = torch.zeros(N)
+
     if laplace_type == 'model':
         
+        for i, m_i in enumerate(model_samples):
+            # try:            
+            if not hasattr(self.m_prior_dist, 'log_probs'):
+                prior_log_prob_i = self.m_prior_dist.log_prob(m_i[0])
+            else:
+                prior_log_prob_i = self.m_prior_dist.log_probs[i]
 
-        for m_i in model_samples:
-            pass
+            if not hasattr(self.m_prior_dist, 'hessians'):
+                prior_H = torch.autograd.functional.hessian(
+                    self.m_prior_dist.log_prob, m_i[0]).squeeze()
+            else:
+                prior_H = self.m_prior_dist.hessians[i]
             
+            if model_jacobian is None:
+                raise ValueError("Model Jacobian not found.")
+            else:
+                fwd_jacobian = model_jacobian[i]
+                        
+            if self.nuisance_dist is None:
+                m_i_cov = [x.unsqueeze(0) for x in m_i]
+            else:
+                m_i_cov = [x for x in m_i]
             
-            
-            
-            
+            data_cov = self.data_likelihood_dist(*m_i_cov, design).            covariance_matrix.reshape(design.shape[0], design.shape[0])
 
-        print(jacobians.shape)
-        print(hessians.shape)
+            if torch.allclose(data_cov, torch.diag(data_cov)):
+                data_cov_inv = torch.diag(1.0 / torch.diag(data_cov))
+            else:
+                data_cov_inv = torch.inverse(data_cov)
+
+            # convert to double precision to avoid numerical issues
+            Sigma_inv = fwd_jacobian.T.double() @ data_cov_inv.double() @ fwd_jacobian.double() - prior_H.double() + 1e-9 * torch.eye(d)
+            Sigma = torch.inverse(Sigma_inv)
+
+            IG[i] = -0.5 * torch.log(-torch.det(Sigma)) - d/2 * (math.log(2 * torch.pi) + 1) - prior_log_prob_i.double()
         
-        H_F = hessians.swa
-
-
-
+            
+            # except:
+            #     IG[i] = torch.tensor(np.nan)
 
     else:
         raise ValueError("Laplace type not recognised.")
+    
+    IG = IG.detach()
+    
+    eig = IG.nanmean().detach()
+        
+    out_dict = {'N': N, 'IG': IG, 'laplace_type': laplace_type,}
+        
+    return eig, out_dict

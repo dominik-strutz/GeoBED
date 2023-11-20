@@ -77,13 +77,24 @@ class GMM_guide(torch.nn.Module):
 # a lot more complicated than necessary since I had to reimplement zuko.flows.FlowModule since dill cant handle abc abstract classes
 
 class MDN_guide(torch.nn.Module):
-    def __init__(self, model_samples, data_samples, **kwargs):
+    def __init__(
+        self, model_samples, data_samples,
+        data_preprocessing='standardise',
+        **kwargs):
         super().__init__()
         torch.manual_seed(0)
-        self.data_mean = torch.mean(data_samples, dim=0)
-        self.data_std = torch.std(data_samples, dim=0)
-        data_features = data_samples.shape[-1]
         
+        self.data_preprocessing = data_preprocessing
+        
+        if self.data_preprocessing == 'standardise':
+            self.data_mean = torch.mean(data_samples, dim=0)
+            self.data_std = torch.std(data_samples, dim=0)
+        elif self.data_preprocessing == 'normalise':
+            self.data_min = torch.min(data_samples, dim=0)[0]
+            self.data_max = torch.max(data_samples, dim=0)[0]
+        
+        data_features = data_samples.shape[-1]
+                
         model_mean = torch.mean(model_samples, dim=0)
         model_std = torch.std(model_samples, dim=0)
         model_features = model_samples.shape[-1]
@@ -98,8 +109,15 @@ class MDN_guide(torch.nn.Module):
         self.transforms = [zuko.flows.Unconditional(dist.AffineTransform, -model_mean/model_std, 1/model_std, buffer=True),]# buffer=True excludes the parameters from the optimization
      
     def forward(self, d=None):
-        d = ((d-self.data_mean)/self.data_std).detach()
-                    
+        if self.data_preprocessing == 'standardise':
+            d = ((d-self.data_mean)/self.data_std).detach()
+        elif self.data_preprocessing == 'normalise':
+            d = d/self.data_max
+        elif self.data_preprocessing == None:
+            d = d.detach()
+        else:
+            raise ValueError('Incorrect value for data_preprocessing.')   
+        
         transform = zuko.transforms.ComposedTransform(*(t(d) for t in self.transforms))
 
         if d is None:

@@ -209,12 +209,8 @@ def _mi_lower_bound(
         'Batch size cant be larger than M. Choose a smaller batch size or a larger M')
         
     data_samples, model_samples = self.get_data_likelihood_samples(
-            design, n_model_samples=M
+            design, n_model_samples=N+M
     )
-    
-    #TODO maybe change this as this could cause confussion
-    if self.target_forward_function is not None:
-        model_samples = self.target_forward_function(model_samples)
 
     M_model_samples = model_samples[:M]
     N_model_samples = model_samples[M:]
@@ -263,7 +259,7 @@ def _mi_lower_bound(
             
             train_loss_list.append(loss.item())
         
-        with torch.no_grad():            
+        with torch.no_grad():                    
             l = -1*loss_function(guide, N_model_samples, N_data_samples, **bound_kwargs).item()
         test_loss_list.append(l)
         scheduler.step()
