@@ -11,6 +11,7 @@ def laplace(
     N:int,
     laplace_type:str = 'model',
     random_seed:int=None,
+    save_IG=False,
     ):
             
     if self.implict_data_likelihood_dist:
@@ -19,26 +20,40 @@ def laplace(
     if random_seed is not None:
         torch.manual_seed(random_seed)
     
-    model_samples = self.get_m_prior_samples(N)
-    d = model_samples.shape[-1]
+    model_samples_ = self.get_m_prior_samples(N)
+    d = model_samples_.shape[-1]
     
     model_jacobian = None
     if self.nuisance_dist is not None:
-        nuisance_samples = self.get_nuisance_samples(model_samples, 1).squeeze(0)
+        nuisance_samples = self.get_nuisance_samples(model_samples_, 1).squeeze(0)
 
         if hasattr(self.data_likelihood_dist, 'model_jacobian'):
             model_jacobian = self.data_likelihood_dist.model_jacobian(
-            model_samples, nuisance_samples, design=design)
+            model_samples_, nuisance_samples, design=design)
 
         model_samples = zip(
-            model_samples.unsqueeze(1), nuisance_samples.unsqueeze(1))
+            model_samples_.unsqueeze(1), nuisance_samples.unsqueeze(1))
+        
+        covariance_matrices = self.data_likelihood_dist(
+            model_samples_,
+            nuisance_samples.unsqueeze(0),
+            design).covariance_matrix.reshape(
+                model_samples_.shape[0],
+                design.shape[0], design.shape[0])
+    
     else:
         if hasattr(self.data_likelihood_dist, 'model_jacobian'):
                         
             model_jacobian = self.data_likelihood_dist.model_jacobian(
-            model_samples, design=design)
+            model_samples_, design=design)
         
-        model_samples = model_samples.unsqueeze(1)
+        model_samples = model_samples_.unsqueeze(1)
+        
+        covariance_matrices = self.data_likelihood_dist(
+        model_samples_,
+        design).covariance_matrix.reshape(
+            model_samples_.shape[0],
+            design.shape[0], design.shape[0])
     
     IG = torch.zeros(N)
 
@@ -61,13 +76,8 @@ def laplace(
                 raise ValueError("Model Jacobian not found.")
             else:
                 fwd_jacobian = model_jacobian[i]
-                        
-            if self.nuisance_dist is None:
-                m_i_cov = [x.unsqueeze(0) for x in m_i]
-            else:
-                m_i_cov = [x for x in m_i]
             
-            data_cov = self.data_likelihood_dist(*m_i_cov, design).            covariance_matrix.reshape(design.shape[0], design.shape[0])
+            data_cov = covariance_matrices[i].double()
 
             if torch.allclose(data_cov, torch.diag(data_cov)):
                 data_cov_inv = torch.diag(1.0 / torch.diag(data_cov))
@@ -75,10 +85,10 @@ def laplace(
                 data_cov_inv = torch.inverse(data_cov)
 
             # convert to double precision to avoid numerical issues
-            Sigma_inv = fwd_jacobian.T.double() @ data_cov_inv.double() @ fwd_jacobian.double() - prior_H.double() + 1e-9 * torch.eye(d)
+            Sigma_inv = fwd_jacobian.T.double() @ data_cov_inv @ fwd_jacobian.double() - prior_H.double() + 1e-9 * torch.eye(d)
             Sigma = torch.inverse(Sigma_inv)
 
-            IG[i] = -0.5 * torch.log(-torch.det(Sigma)) - d/2 * (math.log(2 * torch.pi) + 1) - prior_log_prob_i.double()
+            IG[i] = -0.5 * torch.logdet(Sigma) - d/2 * (math.log(2 * torch.pi) + 1) - prior_log_prob_i.double()
         
             
             # except:
@@ -90,7 +100,10 @@ def laplace(
     IG = IG.detach()
     
     eig = IG.nanmean().detach()
-        
-    out_dict = {'N': N, 'IG': IG, 'laplace_type': laplace_type,}
+    
+    if save_IG:
+        out_dict = {'N': N, 'IG': IG, 'laplace_type': laplace_type,}
+    else:
+        out_dict = {'N': N, 'laplace_type': laplace_type,}
         
     return eig, out_dict
