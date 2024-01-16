@@ -207,10 +207,18 @@ def _mi_lower_bound(
     if n_batch > M: 
         raise ValueError(
         'Batch size cant be larger than M. Choose a smaller batch size or a larger M')
-        
-    data_samples, model_samples = self.get_data_likelihood_samples(
-            design, n_model_samples=N+M
-    )
+    
+    if self.nuisance_dist:
+        data_samples, model_samples = self.get_data_likelihood_samples(
+            design, n_model_samples=N+M, n_nuisance_samples=1)
+        data_samples = data_samples.squeeze(0)
+        model_samples = model_samples.squeeze(0)
+    else:
+        data_samples, model_samples = self.get_data_likelihood_samples(
+            design, n_model_samples=N+M)
+
+    # print('data_samples', data_samples.shape)
+    # print('model_samples', model_samples.shape) 
 
     M_model_samples = model_samples[:M]
     N_model_samples = model_samples[M:]
@@ -218,8 +226,14 @@ def _mi_lower_bound(
     M_data_samples = data_samples[:M]
     N_data_samples = data_samples[M:]    
 
+    # print('M_model_samples', M_model_samples.shape)
+    # print('N_model_samples', N_model_samples.shape)
+    
+    # print('M_data_samples', M_data_samples.shape)
+    # print('N_data_samples', N_data_samples.shape)
+
     M_dataloader = torch.utils.data.DataLoader(
-        torch.utils.data.TensorDataset(model_samples[:M], data_samples[:M]),
+        torch.utils.data.TensorDataset(M_model_samples, M_data_samples),
         batch_size=n_batch, shuffle=True)
     
     if bound == 'variational_posterior':

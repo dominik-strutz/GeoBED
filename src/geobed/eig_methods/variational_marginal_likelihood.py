@@ -33,31 +33,29 @@ def variational_marginal_likelihood(
         raise ValueError(
         'Batch size cant be larger than M. Choose a smaller batch size or a larger M')
 
-    model_samples = self.get_m_prior_samples(N+M)    
-    nuisance_samples = self.get_nuisance_prior_samples(1, model_samples)
+    # model_samples = self.get_m_prior_samples(N+M)    
+    # nuisance_samples = self.get_nuisance_prior_samples(1, model_samples)
 
-    data_samples = self.forward_function.forward(design, model_samples, nuisance_samples)
-
-    #TODO maybe change this as this could cause confussion
-    if self.target_forward_function is not None:
-        model_samples = self.target_forward_function(model_samples)
+    if self.nuisance_dist:
+        data_samples, model_samples = self.get_data_likelihood_samples(
+            design, n_model_samples=N+M, n_nuisance_samples=1)
+        data_samples = data_samples.squeeze(0)
+        model_samples = model_samples.squeeze(0)
+    else:
+        data_samples, model_samples = self.get_data_likelihood_samples(
+            design, n_model_samples=N+M)
+    # #TODO maybe change this as this could cause confussion
+    # if self.target_forward_function is not None:
+    #     model_samples = self.target_forward_function(model_samples)
     
     if data_samples == None:
         return torch.tensor(torch.nan), None
-    
-    data_samples = data_samples.squeeze(1) # remove nuisance dimension
 
     M_model_samples = model_samples[:M]
     N_model_samples = model_samples[M:]
 
     M_data_samples = data_samples[:M]
     N_data_samples = data_samples[M:]
-    
-    M_data_likelihoods = self.obs_noise_dist(M_data_samples, design)
-    N_data_likelihoods = self.obs_noise_dist(N_data_samples, design)
-    
-    M_data_samples = M_data_likelihoods.sample()
-    N_data_samples = N_data_likelihoods.sample()
     
     M_dataloader = torch.utils.data.DataLoader(
         torch.utils.data.TensorDataset(M_model_samples, M_data_samples),

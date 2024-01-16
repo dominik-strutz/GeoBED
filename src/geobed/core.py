@@ -71,7 +71,7 @@ class dummy_cond_nuisance_dist():
     def __call__(self, x):
         if x is None:
             return self.nuisance_dist
-        else:
+        else:            
             return self.nuisance_dist.expand(x.shape[:-1])
 
 class Obs_Noise_Dist_Wrapper():
@@ -406,7 +406,7 @@ class BED_base_explicit(BED_base):
         
         return data_likelihood.sample(n_likelihood_samples).squeeze(0), model_samples
 
-class BED_base_nuisance(BED_base_explicit):
+class BED_base_nuisance(BED_base):
     
     def __init__(
         self,
@@ -414,9 +414,7 @@ class BED_base_nuisance(BED_base_explicit):
         nuisance_dist: Union[Distribution, callable, Tensor],
         data_likelihood_dist: callable,
         ):
-        
-        super().__init__(m_prior_dist, data_likelihood_dist)
-        
+        super().__init__(m_prior_dist)
         # Enforce that nuisance distribution might be conditional on model parameters
         if not callable(nuisance_dist):
             # Check if nuisance samples or nuisance distribution is provided
@@ -426,8 +424,10 @@ class BED_base_nuisance(BED_base_explicit):
         else:
             self.nuisance_dist = nuisance_dist         
             
-            
+        self.data_likelihood_dist = data_likelihood_dist
         self.independent_nuisance_parameters = False
+        self.implict_data_likelihood_dist = False
+
     
     def get_nuisance_samples(
         self,
@@ -452,7 +452,8 @@ class BED_base_nuisance(BED_base_explicit):
         if random_seed is not None:
             torch.manual_seed(random_seed)
                 
-        return self.nuisance_dist(model_samples).sample(n_nuisance_samples)
+        return self.nuisance_dist(model_samples).sample(
+            n_nuisance_samples).squeeze(0)
         
     
     def get_data_likelihood(
@@ -475,16 +476,54 @@ class BED_base_nuisance(BED_base_explicit):
         
         Returns:
             Returns a distribution of data samples.
-        """
+        """        
         model_samples = self.get_m_prior_samples(n_model_samples, random_seed_model)
         
         nuisance_samples = self.get_nuisance_samples(model_samples, n_nuisance_samples, random_seed_nuisance)
+        model_samples = model_samples.expand(*nuisance_samples.shape[:-2], -1, -1)
+                        
+        return self.data_likelihood_dist(design, model_samples, nuisance_samples), model_samples
+    
+    
+    def get_data_likelihood_samples(
+        self,
+        design: Tensor,
+        n_model_samples: int=1,
+        n_nuisance_samples: int=1,
+        n_likelihood_samples: int=1,
+        random_seed_model: int=None,
+        random_seed_nuisance: int=None,
+        random_seed_likelihood: int=None,
+        ) -> Tensor:
+        """
+        Samples model and nuisance parameters from their prior distributions, evaluates the data likelihood at the design and the sampled parameters and returns samples from the data likelihood distribution.
         
-        return self.data_likelihood_dist(model_samples, nuisance_samples, design=design), model_samples, nuisance_samples
+        Args:
+            design: Tensor describing the experimental design at which the data likelihood is evaluated.
+            n_model_samples: Number of model parameter samples to return. Defaults to 1.
+            n_nuisance_samples: Number of nuisance parameter samples to return. Defaults to 1.
+            n_likelihood_samples: Number of samples to return from the data likelihood distribution. Defaults to 1.
+            random_seed_model: Random seed to use for sampling from the model parameter prior distribution. Defaults to None.
+            random_seed_nuisance: Random seed to use for sampling from the nuisance parameter prior distribution. Defaults to None.
+            random_seed_likelihood: Random seed to use for sampling from the data likelihood distribution. Defaults to None.
+        
+        Returns:
+            Returns a tensor of data samples of shape (n_likelihood_samples, \*n_model_samples, \*n_nuisance_samples, dim_data_samples).
+        """
+        if type(n_likelihood_samples) == int:
+            n_likelihood_samples = (n_likelihood_samples,)
+            
+        data_likelihood, model_samples = self.get_data_likelihood(
+            design, n_model_samples, n_nuisance_samples, random_seed_model, random_seed_nuisance)
+        
+        if random_seed_likelihood is not None:
+            torch.manual_seed(random_seed_likelihood)
+        
+        return data_likelihood.sample(n_likelihood_samples) , model_samples
 
 
-class BED_base_implicit(BED_base):
-    pass
+# class BED_base_implicit(BED_base):
+#     pass
 
 
 
