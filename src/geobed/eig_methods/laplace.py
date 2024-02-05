@@ -99,7 +99,8 @@ def laplace(
     
     IG = IG.detach()
     
-    eig = IG.nanmean().detach()
+    eig = IG.nansum() / len(IG)
+    eig = eig.detach()
     
     if save_IG:
         out_dict = {'N': N, 'IG': IG, 'laplace_type': laplace_type,}
