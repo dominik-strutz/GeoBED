@@ -276,19 +276,14 @@ class BED_base():
                                     progress_bar= progress_bar, progress_bar_options={'position': 1, 'desc': 'Calculating eig',})
                     
             elif parallel_library == 'joblib':
-                
-                import copy
-                
-                def worker(self_obj, d, m, m_kwargs):
-                    return self_obj._calculate_EIG_single(d, m, m_kwargs, random_seed)
+                def worker(d, m, m_kwargs):
+                    return self._calculate_EIG_single(d, m, m_kwargs, random_seed)
 
                 with tqdm_joblib(tqdm(desc="Calculating eig", position=1, total=len(design), disable=not progress_bar)) as progress_bar:
                     results = Parallel(n_jobs=num_workers)(
-                        delayed(worker)(self_obj, design, method, method_kwargs) 
-                        for self_obj, design, method, method_kwargs 
-                        in list(zip(
-                            [copy.deepcopy(self) for _ in range(len(design))],
-                            design, eig_method, eig_method_kwargs)))
+                        delayed(worker)(design, method, method_kwargs) 
+                        for design, method, method_kwargs 
+                        in list(zip(design, eig_method, eig_method_kwargs)))
             
             else:
                 raise ValueError(f'Unknown parallel library: {parallel_library}. Choose from mpire or joblib')
