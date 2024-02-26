@@ -287,7 +287,7 @@ class BED_base():
                         delayed(worker)(self_obj, design, method, method_kwargs) 
                         for self_obj, design, method, method_kwargs 
                         in list(zip(
-                            [copy.deepcopy(self) for _ in range(design)],
+                            [copy.deepcopy(self) for _ in range(len(design))],
                             design, eig_method, eig_method_kwargs)))
             
             else:
