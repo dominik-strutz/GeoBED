@@ -1,7 +1,9 @@
+r""" Base classes for Bayesian experimental design methods. """
+
 __version__ = '0.0.1'
 
 from . import core
-from . import eig_methods
+from . import eig
 from . import fwd_collection
 from . import legacy
 

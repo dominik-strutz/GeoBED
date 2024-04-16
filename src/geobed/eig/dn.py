@@ -23,7 +23,7 @@ def dn(
 
     if self.nuisance_dist is not None:
         raise NotImplementedError(r"$D_N$ method not implemented yet for nuisance parameters")
-    if self.implict_data_likelihood_dist:
+    if self.implict_data_likelihood_func:
         raise ValueError(r"$D_N$ method cannot be used with implicit observation noise distribution")
         
     data_likelihoods, _ = self.get_data_likelihood(

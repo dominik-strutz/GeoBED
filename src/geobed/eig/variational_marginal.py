@@ -6,7 +6,7 @@ import tqdm
 
 from torch.optim import Adam
 from torch import Tensor
-from .utils import DummyScheduler
+from ..utils.misc import _DummyScheduler
 
 def variational_marginal(
     self,
@@ -19,7 +19,7 @@ def variational_marginal(
     n_epochs=1,
     optimizer=Adam,
     optimizer_kwargs={},
-    scheduler=DummyScheduler,
+    scheduler=_DummyScheduler,
     scheduler_kwargs={},
     return_guide=True,
     return_train_loss=True,
@@ -33,7 +33,7 @@ def variational_marginal(
 
     if self.nuisance_dist is not None:
         raise NotImplementedError("Variational marginal method not implemented yet for nuisance parameters")
-    if self.implict_data_likelihood_dist:
+    if self.implict_data_likelihood_func:
         raise ValueError("Variational marginal method cannot be used with implicit observation noise distribution")
 
     if n_batch > M: 

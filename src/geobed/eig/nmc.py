@@ -1,3 +1,7 @@
+r"""
+Test
+"""
+
 import math
 import torch
 import numpy as np
@@ -14,11 +18,14 @@ def nmc(
     M_prime: int=None,
     random_seed=None,
     ):
+    r"""
+    Documentation for NMC
+    """
 
     if random_seed is not None:
         torch.manual_seed(random_seed)
 
-    if self.implict_data_likelihood_dist:
+    if self.implict_data_likelihood_func:
         raise ValueError("NMC cannot be used with implicit observation noise distribution")
 
     if M is None and not reuse_M:

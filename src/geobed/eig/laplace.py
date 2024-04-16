@@ -14,7 +14,7 @@ def laplace(
     save_IG=False,
     ):
             
-    if self.implict_data_likelihood_dist:
+    if self.implict_data_likelihood_func:
         raise ValueError("Laplace method cannot be used with implicit likelihoods.")
     
     if random_seed is not None:

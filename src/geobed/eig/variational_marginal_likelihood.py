@@ -6,7 +6,7 @@ import tqdm
 
 from torch.optim import Adam
 from torch import Tensor
-from .utils import DummyScheduler
+from ..utils.misc import _DummyScheduler
 
 def variational_marginal_likelihood(
     self,
@@ -21,7 +21,7 @@ def variational_marginal_likelihood(
     n_epochs=1,
     optimizer=Adam,
     optimizer_kwargs={},
-    scheduler=DummyScheduler,
+    scheduler=_DummyScheduler,
     scheduler_kwargs={},
     return_guide=True,
     return_train_loss=True,
