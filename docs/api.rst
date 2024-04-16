@@ -5,7 +5,10 @@ API
 
 .. autosummary::
    :toctree: api
-   :recursive:
+   :recursive: 
 
-   geobed.core
-   geobed.eig_methods
+   
+   core
+   .. core.BED_base_nuisance
+
+   eig
