@@ -38,8 +38,7 @@ the likelihood
         ...
 
     def data_likelihood_func(model_samples, design):
-    
-    return dist.MultivariateNormal(forward_function(model_samples, design), sigma)
+        return dist.MultivariateNormal(forward_function(model_samples, design), sigma)
 ```
 
 Those are the two main components of the model. The prior is the distribution of the model parameters before any data is observed. The likelihood is the distribution of the data given the model parameters. The goal of the optimal experimental design is to find the design that maximizes the information gain about the model parameters given the data.
