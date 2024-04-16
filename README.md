@@ -15,8 +15,7 @@ To install the package, simply run
 ```
 
 > The package is still in heavy development and can change rapidly. If you want to use it, its recommended to fix the version by running
-
->```
+```
     pip install git+https://github.com/dominik-strutz/GeoBED@<version>
 ```
 where `<version>` is the version you want to use (e.g. a commit hash or a tag).
