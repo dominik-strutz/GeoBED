@@ -356,11 +356,6 @@ class MTxyt_Lookup_Class(nn.Module):
         self.n_t_internal = int(n_t*((t_N-t_0)+2*t_max_shift)/(t_N-t_0))
         self.t_grid_internal, self.dt_internal = np.linspace(t_0-t_max_shift, t_N+t_max_shift, self.n_t_internal, retstep=True)
 
-        try:
-            receivers = receivers.numpy()
-        except:
-            pass
-        
         if number_of_processes>1 and verbose:
             print('Progress bar for precomputation not supported with number_of_processes>1')
         
