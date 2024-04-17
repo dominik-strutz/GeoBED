@@ -2,7 +2,7 @@ GeoBED
 ======
 
 
-GeoBED is a Python package for optimal experimental design taylored to geoscientific applications. It relies on the [PyTorch](https://pytorch.org) library and aims to make the design of experiments as easy as possible, while having a wide raange of algorithms and methods to choose from.
+GeoBED is a Python package for optimal experimental design tailored to geoscientific applications. It relies on the [PyTorch](https://pytorch.org) library and aims to make experiment design as easy as possible while offering a wide range of algorithms and methods to choose from.
 
 Installation
 ------------
@@ -14,16 +14,16 @@ To install the package, simply run
     pip install git+https://github.com/dominik-strutz/GeoBED
 ```
 
-> The package is still in heavy development and can change rapidly. If you want to use it, its recommended to fix the version by running
+> The package is still in heavy development and can change rapidly. If you want to use it, it is recommended to fix the version by running
 ```
     pip install git+https://github.com/dominik-strutz/GeoBED@<version>
 ```
-where `<version>` is the version you want to use (e.g. a commit hash or a tag).
+Where `<version>` is the version you want to use (e.g. a commit hash or a tag).
 
 Get started
 -----------
 
-To get started you needd to define the model prior
+To get started, you need to define the model prior
 
 ```python
     m_prior_dist = dist.MultivariateNormal(
@@ -41,7 +41,7 @@ the likelihood
         return dist.MultivariateNormal(forward_function(model_samples, design), sigma)
 ```
 
-Those are the two main components of the model. The prior is the distribution of the model parameters before any data is observed. The likelihood is the distribution of the data given the model parameters. The goal of the optimal experimental design is to find the design that maximizes the information gain about the model parameters given the data.
+Those are the two main components of the model. The prior is the distribution of the model parameters before any data is observed, and the likelihood is the distribution of the data given the model parameters. The goal of the optimal experimental design is to find the design that maximizes the information gain about the model parameters given the data.
 
 This can be done by using the `BED_base_explicit` class
 
@@ -52,7 +52,7 @@ This can be done by using the `BED_base_explicit` class
     )
 ```
 
-and by then defining possible design_points we can calculate the information gain for each design point and choose the best one
+and by then defining possible design_points, we can calculate the information gain for each design point and choose the best one
 
 ```python
     design_points = ...
