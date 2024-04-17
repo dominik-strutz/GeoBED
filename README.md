@@ -2,7 +2,7 @@ GeoBED
 ======
 
 
-GeoBED is a Python package for optimal experimental design taylored to geoscientific applications. It relies on the `PyTorch <https://pytorch.org>`_ library and aims to make the design of experiments as easy as possible, while having a wide raange of algorithms and methods to choose from.
+GeoBED is a Python package for optimal experimental design taylored to geoscientific applications. It relies on the [PyTorch](https://pytorch.org) library and aims to make the design of experiments as easy as possible, while having a wide raange of algorithms and methods to choose from.
 
 Installation
 ------------
