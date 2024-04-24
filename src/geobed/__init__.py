@@ -5,7 +5,6 @@ __version__ = '0.0.1'
 from . import core
 from . import eig
 from . import fwd_collection
-from . import legacy
 
 from .core import (
     BED_base_explicit,
