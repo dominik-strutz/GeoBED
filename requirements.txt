@@ -1,7 +1,6 @@
 numpy
 torch
 tqdm
-h5py
 matplotlib
 dill
 multiprocess
