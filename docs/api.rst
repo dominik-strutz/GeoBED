@@ -9,6 +9,4 @@ API
 
    
    core
-   .. core.BED_base_nuisance
-
    eig

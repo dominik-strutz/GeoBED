@@ -71,7 +71,6 @@ class BED_base():
             m_prior_dist: The prior distribution of the model parameters. Must be a :class:`torch.distributions.Distribution` object.
         """
         
-        
         # Check if either prior samples or prior distribution is provided
         if type(m_prior_dist) == torch.Tensor:
             self.m_prior_dist = SampleDistribution(m_prior_dist)
@@ -363,25 +362,24 @@ class BED_base_explicit(BED_base):
         return data_likelihood.sample(n_likelihood_samples).squeeze(0), model_samples
 
 class BED_base_nuisance(BED_base):
+    r"""
+    Defines the base class for Bayesian experimental design methods that have nuisance parameters. This is the case when the data likelihood is a function of the nuisance parameters, the model parameters, and the experimental design. The data likelihood is function takes three arguments: the experimental design, the model parameters and the nuisance parameters. The model parameters are assumed to be a tensor of shape (n_model_samples, dim_model_parameters). The nuisance parameters are assumed to be a tensor of shape (n_nuisance_samples, \*n_model_samples, dim_nuisance_parameters). The experimental design is assumed to be a tensor of shape (design_dim). The data likelihood function returns a :class:`torch.distributions.Distribution` object. The data likelihood function must be provided as an argument to the constructor of the class.
     
+    The model parameter prior distribution is assumed to be a :class:`torch.distributions.Distribution` object. The model parameter prior distribution needs to return samples of shape (n_model_samples, dim_model_parameters). The model parameter prior distribution is assumed to be provided as an argument to the constructor of the class. Be carefull when using one dimensional :torch.distributions.Distribution` objects such as :torch.distributions.Normal` or :torch.distributions.Uniform`. Use :torch.distributions.Independent` if necessary to make sure that the samples are of shape (n_model_samples, dim_model_parameters).
+    
+    The nuisance parameter prior distribution can be either a :class:`torch.distributions.Distribution` object or a function that takes the model parameters as an argument and returns a :class:`torch.distributions.Distribution` object. The nuisance parameter prior distribution needs to return samples of shape (n_nuisance_samples, \*n_model_samples, dim_nuisance_parameters). If the nuisance parameter distribution is independent of the model parameters, it is recommended to use a :class:`torch.distributions.Distribution` object, since the provided distribution will automatically be expanded to return samples of shape (n_nuisance_samples, \*n_model_samples, dim_nuisance_parameters).
+    
+    Args:
+        m_prior_dist: The prior distribution of the model parameters. Must be a :class:`torch.distributions.Distribution` object.
+        nuisance_dist: The prior distribution of the nuisance parameters. Must be a :class:`torch.distributions.Distribution` object or a function that takes the model parameters as an argument and returns a :class:`torch.distributions.Distribution` object. 
+        data_likelihood_func: The data likelihood function. Must be a function that takes three arguments: the experimental design, the model parameters and the nuisance parameters. The model parameters are assumed to be a tensor of shape (n_nuisance_samples, \*n_model_samples, dim_model_parameters). The nuisance parameters are assumed to be a tensor of shape (n_nuisance_samples, \*n_model_samples, dim_nuisance_parameters). The experimental design is assumed to be a tensor of shape (design_dim). The data likelihood function returns a :class:`torch.distributions.Distribution` object.
+    """ 
     def __init__(
         self,
         m_prior_dist: Union[Distribution, Tensor],
         nuisance_dist: Union[Distribution, callable, Tensor],
         data_likelihood_func: callable,
         ):
-        r"""
-        Defines the base class for Bayesian experimental design methods that have nuisance parameters. This is the case when the data likelihood is a function of the nuisance parameters, the model parameters, and the experimental design. The data likelihood is function takes three arguments: the experimental design, the model parameters and the nuisance parameters. The model parameters are assumed to be a tensor of shape (n_model_samples, dim_model_parameters). The nuisance parameters are assumed to be a tensor of shape (n_nuisance_samples, \*n_model_samples, dim_nuisance_parameters). The experimental design is assumed to be a tensor of shape (design_dim). The data likelihood function returns a :class:`torch.distributions.Distribution` object. The data likelihood function must be provided as an argument to the constructor of the class.
-        
-        The model parameter prior distribution is assumed to be a :class:`torch.distributions.Distribution` object. The model parameter prior distribution needs to return samples of shape (n_model_samples, dim_model_parameters). The model parameter prior distribution is assumed to be provided as an argument to the constructor of the class. Be carefull when using one dimensional :torch.distributions.Distribution` objects such as :torch.distributions.Normal` or :torch.distributions.Uniform`. Use :torch.distributions.Independent` if necessary to make sure that the samples are of shape (n_model_samples, dim_model_parameters).
-        
-        The nuisance parameter prior distribution can be either a :class:`torch.distributions.Distribution` object or a function that takes the model parameters as an argument and returns a :class:`torch.distributions.Distribution` object. The nuisance parameter prior distribution needs to return samples of shape (n_nuisance_samples, \*n_model_samples, dim_nuisance_parameters). If the nuisance parameter distribution is independent of the model parameters, it is recommended to use a :class:`torch.distributions.Distribution` object, since the provided distribution will automatically be expanded to return samples of shape (n_nuisance_samples, \*n_model_samples, dim_nuisance_parameters).
-        
-        Args:
-            m_prior_dist: The prior distribution of the model parameters. Must be a :class:`torch.distributions.Distribution` object.
-            nuisance_dist: The prior distribution of the nuisance parameters. Must be a :class:`torch.distributions.Distribution` object or a function that takes the model parameters as an argument and returns a :class:`torch.distributions.Distribution` object. 
-            data_likelihood_func: The data likelihood function. Must be a function that takes three arguments: the experimental design, the model parameters and the nuisance parameters. The model parameters are assumed to be a tensor of shape (n_nuisance_samples, \*n_model_samples, dim_model_parameters). The nuisance parameters are assumed to be a tensor of shape (n_nuisance_samples, \*n_model_samples, dim_nuisance_parameters). The experimental design is assumed to be a tensor of shape (design_dim). The data likelihood function returns a :class:`torch.distributions.Distribution` object.
-        """ 
         
         super().__init__(m_prior_dist)
         # Enforce that nuisance distribution might be conditional on model parameters
