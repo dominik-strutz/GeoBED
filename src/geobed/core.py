@@ -188,8 +188,9 @@ class BED_base():
             else:
                 logging.info(f'File {filename} does not exist. Calculating results.')
 
-        if design.ndim == 2:
-            design = design.unsqueeze(0)
+        if isinstance(design, Tensor):            
+            if design.ndim == 2:
+                design = design.unsqueeze(0)                
         if not isinstance(eig_method, list):
             eig_method = [eig_method] * len(design)
         if not isinstance(eig_method_kwargs, list):
@@ -456,7 +457,7 @@ class BED_base_nuisance(BED_base):
                         
         return self.data_likelihood_func(
             nuisance_samples = nuisance_samples,
-            model_samples = nuisance_samples,
+            model_samples = model_samples,
             design = design), model_samples
     
     
