@@ -88,8 +88,9 @@ def variational_marginal(
     marginal_lp = guide.log_prob(N_data_samples).detach()
     conditional_lp = N_data_likelihoods.log_prob(N_data_samples).detach()
     
-    eig = ((conditional_lp - marginal_lp).sum(0) / N)
-    
+    eig = (conditional_lp - marginal_lp).detach()
+    eig = eig.nansum(0) / torch.isfinite(eig).sum(0)
+
     out_dict = {
         'N': N, 'M': M,
         'n_epochs': n_epochs, 'n_batch': n_batch,

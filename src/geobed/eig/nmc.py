@@ -4,7 +4,6 @@ Test
 
 import math
 import torch
-import numpy as np
 
 from torch import Tensor
 
@@ -49,9 +48,12 @@ def nmc(
             else:
                 M_data_likelihoods = N_data_likelihoods
         else:
-            M_data_likelihoods, _ = self.get_data_likelihood(
-                design, n_model_samples=(M, N))
-            
+            if not memory_efficient:
+                M_data_likelihoods, _ = self.get_data_likelihood(
+                    design, n_model_samples=(M, N))
+            else:
+                pass
+                # delay construction of M_data_likelihoods until needed to save memory
     else:
         if M_prime is None:
             raise ValueError("M_prime must be provided for NMC with nuisance parameters")
@@ -69,8 +71,6 @@ def nmc(
         else:
             raise ValueError("Nuisance parameters not implemented for NMC without reuse_M")
 
-    # print('N_data_likelihoods', N_data_likelihoods)
-    # print('M_data_likelihoods', M_data_likelihoods)
     
     if self.nuisance_dist is None:
         N_data_samples = N_data_likelihoods.sample()
@@ -78,11 +78,7 @@ def nmc(
     else:
         M_data_samples = M_data_likelihoods.sample().squeeze(0)
         N_data_samples = N_data_likelihoods.sample().squeeze(0)[0]
-    
-    
-    # print('N_data_samples.shape', N_data_samples.shape)
-    # print('M_data_samples.shape', M_data_samples.shape)
-    
+
     if not memory_efficient:
         if not reuse_M:
             marginal_lp = M_data_likelihoods.log_prob(M_data_samples).logsumexp(0) - math.log(M)
@@ -97,35 +93,28 @@ def nmc(
                 marginal_lp[i] = M_data_likelihoods.log_prob(M_data_samples[i]).logsumexp(0) - math.log(M)
         
         else:
-            raise ValueError("Memory efficient NMC not implemented for non-reuse_M")
-        
-    #     if reuse_M:
-    #         marginal_lp = torch.zeros(N)
-    #         for i in range(N):
-    #             marginal_lp[i] = self.obs_noise_dist(M_fwd_out, desig n).log_prob(N_samples[i]).logsumexp(0) - math.log(M)
-    #     else:
-    #         raise ValueError("Memory efficient NMC not implemented for non-reuse_M")
+            marginal_lp = torch.zeros(N)            
+            for i in range(N):
+                marginal_lp[i] = self.get_data_likelihood(
+                        design, n_model_samples=M)[0].log_prob(M_data_samples[i]).logsumexp(0) - math.log(M)
     
 
     if M_prime is None:
         conditional_lp = N_data_likelihoods.log_prob(N_data_samples)
-    else:        
-        conditional_lp = (N_data_likelihoods.log_prob(N_data_samples)[1:].logsumexp(0) - math.log(M_prime-1))
+    else:
+        # if memory_efficient:
+        #     conditional_lp = torch.zeros(N)
+        #     for i in range(N):
+        #         conditional_lp[i] = M_data_likelihoods.log_prob(N_data_samples[i]).logsumexp(0) - math.log(M_prime) 
+        # else:
+        conditional_lp = (N_data_likelihoods.log_prob(N_data_samples).logsumexp(0) - math.log(M_prime))
 
-
-    # print('conditional_lp', conditional_lp.sum(0))
-    # print('marginal_lp', marginal_lp.sum(0))
-
-    eig = (conditional_lp - marginal_lp).sum(0) / N
+    eig = conditional_lp - marginal_lp
+    eig = eig.nansum(0) / torch.isfinite(eig).sum(0)
         
     out_dict = {'N': N, 'M': M, 'M_prime':M_prime, 'reuse_N_samples': reuse_M, 'memory_efficient': memory_efficient}
-    
-    # ugag
-    
-    return eig, out_dict
-    
-    
 
+    return eig, out_dict
     
     # N_likelihoods = self.obs_noise_dist(N_likelihoods_input, design)
     # N_samples = N_likelihoods.sample()

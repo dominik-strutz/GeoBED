@@ -41,8 +41,10 @@ def dn(
     marginal_lp = -1/2 * (model_det + D_dim + D_dim * math.log(2*math.pi))
     conditional_lp = data_likelihoods.log_prob(data_samples).detach()
 
-    eig = ((conditional_lp).sum(0) / N) - marginal_lp
-    
+    # eig = ((conditional_lp).sum(0) / N) - marginal_lp
+    eig = conditional_lp - marginal_lp
+    eig = eig.nansum(0) / torch.isfinite(eig).sum(0)
+
     out_dict = {'N': N}
 
     return eig, out_dict

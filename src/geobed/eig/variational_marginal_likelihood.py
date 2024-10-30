@@ -100,7 +100,9 @@ def variational_marginal_likelihood(
     if progress_bar:
         pbar.close()
             
-    eig = ((conditional_guide.log_prob(N_data_samples, N_model_samples) - marginal_guide.log_prob(N_data_samples)).sum(0) / N).detach()
+    # eig = ((conditional_guide.log_prob(N_data_samples, N_model_samples) - marginal_guide.log_prob(N_data_samples)).sum(0) / N).detach()
+    eig = (conditional_guide.log_prob(N_data_samples, N_model_samples) - marginal_guide.log_prob(N_data_samples)).detach()
+    eig = eig.nansum(0) / torch.isfinite(eig).sum(0)
         
     out_dict = {
         'N': N, 'M': M,
