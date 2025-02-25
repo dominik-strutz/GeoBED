@@ -27,14 +27,7 @@ def dummy_forward_function_with_nuisance(design, model_samples, nuisance_samples
 def dummy_target_function(model_samples, nuisance_samples=None):
     if nuisance_samples is None:
         return torch.sum(model_samples, -1).unsqueeze(-1)
-    else:
-        
-        print(model_samples.shape)
-        print(nuisance_samples.shape)
-        
-        print(torch.sum(model_samples, -1).unsqueeze(-1).shape)
-        print(torch.sum(nuisance_samples, -1).unsqueeze(-1).shape)
-        
+    else:        
         return torch.sum(model_samples, -1).unsqueeze(-1) + torch.sum(nuisance_samples, -1).unsqueeze(-1)
 
 def test_entropy():
@@ -175,8 +168,8 @@ def test_get_target_prior_samples():
         target_forward_function=dummy_target_function
     )
     out_2 = test_class_2.get_target_prior_samples((2,3))
-    assert out_2.shape == (2,3,1)        
-    assert out_2.tolist() == dummy_target_function(TEST_MODEL_SAMPLES[6:12].reshape(2,3,3), TEST_NUISANCE_SAMPLES[:6].reshape(2,3,2)).tolist()    
+    assert out_2.shape == (2,3,1)    
+    assert out_2.tolist() == dummy_target_function(TEST_MODEL_SAMPLES[0:6].reshape(2,3,3), TEST_NUISANCE_SAMPLES[:6].reshape(2,3,2)).tolist()    
 
 def test_get_forward_function_samples():
 

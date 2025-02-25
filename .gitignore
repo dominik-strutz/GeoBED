@@ -25,6 +25,8 @@ docs/_build/
 # Docs
 docs/api/
 docs/html/
+docs/jupyter_execute/
+notebooks/  
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

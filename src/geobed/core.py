@@ -129,7 +129,7 @@ class BED_base():
         Returns samples from the model parameter prior distribution.
         
         Arguments:
-            sample_shape: The number of samples to return. If an integer is provided, the shape is (sample_shape, dim_model_parameters). If a tuple is provided, the shape is (\*sample_shape, dim_model_parameters). Defaults to 1.
+            sample_shape: The number of samples to return. If an integer is provided, the shape is (sample_shape, dim_model_parameters). If a tuple is provided, the shape is (sample_shape, dim_model_parameters). Defaults to 1.
             random_seed: The random seed to use for sampling from the prior distribution. Defaults to None.
         
         Returns:
@@ -188,13 +188,9 @@ class BED_base():
             else:
                 logging.info(f'File {filename} does not exist. Calculating results.')
 
-        if isinstance(design, Tensor):            
+        if isinstance(design, Tensor):
             if design.ndim == 2:
-                design = design.unsqueeze(0)                
-        if not isinstance(eig_method, list):
-            eig_method = [eig_method] * len(design)
-        if not isinstance(eig_method_kwargs, list):
-            eig_method_kwargs = [eig_method_kwargs] * len(design)
+                design = design.unsqueeze(0)   
         
         results = []
         if num_workers == 1 or len(design) == 1:
@@ -202,16 +198,16 @@ class BED_base():
                 progress_bar = False
             
             for i, d in tqdm(enumerate(design), disable=not progress_bar, desc='Calculating eig', position=1, total=len(design)):
-                out = self._calculate_EIG_single(d, eig_method[i], eig_method_kwargs[i], random_seed)
+                out = self._calculate_EIG_single(d, eig_method, eig_method_kwargs, random_seed)
                 results.append(out)
                 del out
         else:
             if parallel_library == 'mpire':
-                def worker(worker_id, shared_self, d, m, m_kwargs):
-                    return shared_self._calculate_EIG_single(d, m, m_kwargs, random_seed)
+                def worker(worker_id, shared_self, d,):
+                    return shared_self._calculate_EIG_single(d, eig_method, eig_method_kwargs, random_seed)
                 # spawn method is necessary for multiprocessing to be compatibal with pytorch and windows
-                with Pool(n_jobs=num_workers, start_method='spawn', shared_objects=self, use_dill=True, pass_worker_id=True) as pool:
-                    results = pool.map(worker, list(zip(design, eig_method, eig_method_kwargs)),
+                with Pool(n_jobs=num_workers, start_method='fork', shared_objects=self, use_dill=True, pass_worker_id=True) as pool:
+                    results = pool.map(worker, list(zip(design,)),
                                     progress_bar= progress_bar, progress_bar_options={'position': 1, 'desc': 'Calculating eig',})
                     
             elif parallel_library == 'joblib':
@@ -220,9 +216,8 @@ class BED_base():
 
                 with tqdm_joblib(tqdm(desc="Calculating eig", position=1, total=len(design), disable=not progress_bar)) as progress_bar:
                     results = Parallel(n_jobs=num_workers)(
-                        delayed(worker)(design, method, method_kwargs) 
-                        for design, method, method_kwargs 
-                        in list(zip(design, eig_method, eig_method_kwargs)))
+                        delayed(worker)(design, eig_method, eig_method_kwargs) 
+                        for design in list(design))
             
             else:
                 raise ValueError(f'Unknown parallel library: {parallel_library}. Choose from mpire or joblib')
@@ -267,12 +262,7 @@ class BED_base():
 
         if random_seed is not None: 
             torch.manual_seed(random_seed)
-            #TODO: add documentation for this behaviour
-            try:
-                self.m_prior_dist._reset_sample_generator()
-            except AttributeError:
-                pass
-        
+ 
         out = eig_calculator(self, design, **eig_method_kwargs)
         
         # deal with nan data
@@ -350,7 +340,7 @@ class BED_base_explicit(BED_base):
             random_seed_likelihood: Random seed to use for sampling from the data likelihood distribution. Defaults to None.
         
         Returns:
-            Returns a tensor of data samples of shape (n_likelihood_samples, \*n_model_samples, dim_data_samples).
+            Returns a tensor of data samples of shape (n_likelihood_samples, n_model_samples, dim_data_samples).
         """
         if type(n_likelihood_samples) == int:
             n_likelihood_samples = (n_likelihood_samples,)
@@ -364,16 +354,16 @@ class BED_base_explicit(BED_base):
 
 class BED_base_nuisance(BED_base):
     r"""
-    Defines the base class for Bayesian experimental design methods that have nuisance parameters. This is the case when the data likelihood is a function of the nuisance parameters, the model parameters, and the experimental design. The data likelihood is function takes three arguments: the experimental design, the model parameters and the nuisance parameters. The model parameters are assumed to be a tensor of shape (n_model_samples, dim_model_parameters). The nuisance parameters are assumed to be a tensor of shape (n_nuisance_samples, \*n_model_samples, dim_nuisance_parameters). The experimental design is assumed to be a tensor of shape (design_dim). The data likelihood function returns a :class:`torch.distributions.Distribution` object. The data likelihood function must be provided as an argument to the constructor of the class.
+    Defines the base class for Bayesian experimental design methods that have nuisance parameters. This is the case when the data likelihood is a function of the nuisance parameters, the model parameters, and the experimental design. The data likelihood is function takes three arguments: the experimental design, the model parameters and the nuisance parameters. The model parameters are assumed to be a tensor of shape (n_model_samples, dim_model_parameters). The nuisance parameters are assumed to be a tensor of shape (n_nuisance_samples, n_model_samples, dim_nuisance_parameters). The experimental design is assumed to be a tensor of shape (design_dim). The data likelihood function returns a :class:`torch.distributions.Distribution` object. The data likelihood function must be provided as an argument to the constructor of the class.
     
     The model parameter prior distribution is assumed to be a :class:`torch.distributions.Distribution` object. The model parameter prior distribution needs to return samples of shape (n_model_samples, dim_model_parameters). The model parameter prior distribution is assumed to be provided as an argument to the constructor of the class. Be carefull when using one dimensional :torch.distributions.Distribution` objects such as :torch.distributions.Normal` or :torch.distributions.Uniform`. Use :torch.distributions.Independent` if necessary to make sure that the samples are of shape (n_model_samples, dim_model_parameters).
     
-    The nuisance parameter prior distribution can be either a :class:`torch.distributions.Distribution` object or a function that takes the model parameters as an argument and returns a :class:`torch.distributions.Distribution` object. The nuisance parameter prior distribution needs to return samples of shape (n_nuisance_samples, \*n_model_samples, dim_nuisance_parameters). If the nuisance parameter distribution is independent of the model parameters, it is recommended to use a :class:`torch.distributions.Distribution` object, since the provided distribution will automatically be expanded to return samples of shape (n_nuisance_samples, \*n_model_samples, dim_nuisance_parameters).
+    The nuisance parameter prior distribution can be either a :class:`torch.distributions.Distribution` object or a function that takes the model parameters as an argument and returns a :class:`torch.distributions.Distribution` object. The nuisance parameter prior distribution needs to return samples of shape (n_nuisance_samples, n_model_samples, dim_nuisance_parameters). If the nuisance parameter distribution is independent of the model parameters, it is recommended to use a :class:`torch.distributions.Distribution` object, since the provided distribution will automatically be expanded to return samples of shape (n_nuisance_samples, n_model_samples, dim_nuisance_parameters).
     
     Args:
         m_prior_dist: The prior distribution of the model parameters. Must be a :class:`torch.distributions.Distribution` object.
         nuisance_dist: The prior distribution of the nuisance parameters. Must be a :class:`torch.distributions.Distribution` object or a function that takes the model parameters as an argument and returns a :class:`torch.distributions.Distribution` object. 
-        data_likelihood_func: The data likelihood function. Must be a function that takes three arguments: the experimental design, the model parameters and the nuisance parameters. The model parameters are assumed to be a tensor of shape (n_nuisance_samples, \*n_model_samples, dim_model_parameters). The nuisance parameters are assumed to be a tensor of shape (n_nuisance_samples, \*n_model_samples, dim_nuisance_parameters). The experimental design is assumed to be a tensor of shape (design_dim). The data likelihood function returns a :class:`torch.distributions.Distribution` object.
+        data_likelihood_func: The data likelihood function. Must be a function that takes three arguments: the experimental design, the model parameters and the nuisance parameters. The model parameters are assumed to be a tensor of shape (n_nuisance_samples, n_model_samples, dim_model_parameters). The nuisance parameters are assumed to be a tensor of shape (n_nuisance_samples, n_model_samples, dim_nuisance_parameters). The experimental design is assumed to be a tensor of shape (design_dim). The data likelihood function returns a :class:`torch.distributions.Distribution` object.
     """ 
     def __init__(
         self,
@@ -417,7 +407,7 @@ class BED_base_nuisance(BED_base):
             random_seed_nuisance: Random seed to use for sampling from the nuisance parameter prior distribution. Defaults to None.
         
         Returns:
-            Returns a tensor of nuisance parameter samples of shape (n_nuisance_samples, \*n_model_samples, dim_nuisance_parameters).
+            Returns a tensor of nuisance parameter samples of shape (n_nuisance_samples, n_model_samples, dim_nuisance_parameters).
         """        
         if type(n_nuisance_samples) == int:
             n_nuisance_samples = (n_nuisance_samples,)
@@ -484,7 +474,7 @@ class BED_base_nuisance(BED_base):
             random_seed_likelihood: Random seed to use for sampling from the data likelihood distribution. Defaults to None.
         
         Returns:
-            Returns a tensor of data samples of shape (n_likelihood_samples, \*n_model_samples, \*n_nuisance_samples, dim_data_samples).
+            Returns a tensor of data samples of shape (n_likelihood_samples, n_model_samples, n_nuisance_samples, dim_data_samples).
         """
         if type(n_likelihood_samples) == int:
             n_likelihood_samples = (n_likelihood_samples,)

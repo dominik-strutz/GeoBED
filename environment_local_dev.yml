@@ -1,0 +1,41 @@
+# run: conda env create --file environment.yml
+name: geobed_dev
+channels:
+  - pytorch
+  - conda-forge
+dependencies:
+
+# general dependencies
+- python>3.10
+- pip>19.0
+- tqdm
+
+# array processing
+- numpy
+- pandas
+- xarray
+- h5py
+- netcdf4
+
+# ML libraries 
+- pytorch
+
+# plotting
+- matplotlib
+- seaborn
+
+# parallel processing
+- dill
+- mpire
+- joblib
+
+# general scientific libraries
+- scipy
+- segyio
+- shapely
+- scikit-learn
+
+- pip:
+  # - pykonal (currently deprecated)
+  - git+https://github.com/dominik-strutz/pykonal
+  - zuko<1.0
