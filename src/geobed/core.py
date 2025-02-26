@@ -234,7 +234,7 @@ class BED_base():
         return results
     
     def _calculate_EIG_single(self, design, eig_method, eig_method_kwargs, random_seed=None):
-        
+                
         eig_method = eig_method.lower()
             
         if eig_method == 'nmc':
@@ -259,10 +259,9 @@ class BED_base():
             raise ValueError(f'Unknown eig method: {eig_method}. Choose from {self.eig_methods}')                                
 
         start_time = time.perf_counter()
-
-        if random_seed is not None: 
-            torch.manual_seed(random_seed)
  
+        eig_method_kwargs['random_seed'] = random_seed
+    
         out = eig_calculator(self, design, **eig_method_kwargs)
         
         # deal with nan data

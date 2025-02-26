@@ -76,28 +76,27 @@ def nmc(
         N_data_samples = N_data_likelihoods.sample()
         M_data_samples = N_data_samples
     else:
-        M_data_samples = M_data_likelihoods.sample().squeeze(0)
         N_data_samples = N_data_likelihoods.sample().squeeze(0)[0]
+        M_data_samples = N_data_samples
 
-    if not memory_efficient:
-        if not reuse_M:
-            marginal_lp = M_data_likelihoods.log_prob(M_data_samples).logsumexp(0) - math.log(M)
-        else:
-            marginal_lp = M_data_likelihoods.log_prob(
-                M_data_samples.unsqueeze(0).swapaxes(0, 1)
-                ).swapaxes(0, 1).logsumexp(0) - math.log(M)
     if memory_efficient:
         if reuse_M:
             marginal_lp = torch.zeros(N)            
             for i in range(N):
                 marginal_lp[i] = M_data_likelihoods.log_prob(M_data_samples[i]).logsumexp(0) - math.log(M)
-        
         else:
             marginal_lp = torch.zeros(N)            
             for i in range(N):
                 marginal_lp[i] = self.get_data_likelihood(
                         design, n_model_samples=M)[0].log_prob(M_data_samples[i]).logsumexp(0) - math.log(M)
-    
+    else:
+        if reuse_M:
+            marginal_lp = M_data_likelihoods.log_prob(
+                M_data_samples.unsqueeze(0).swapaxes(0, 1)
+                ).swapaxes(0, 1).logsumexp(0) - math.log(M)
+        else:
+            marginal_lp = M_data_likelihoods.log_prob(M_data_samples).logsumexp(0) - math.log(M)
+            
 
     if M_prime is None:
         conditional_lp = N_data_likelihoods.log_prob(N_data_samples)
@@ -124,8 +123,7 @@ def nmc(
             # print(N_data_likelihoods.log_prob(N_data_samples).shape)
             
         conditional_lp = N_data_likelihoods.log_prob(N_data_samples).logsumexp(0) - math.log(M_prime)
-
-
+        
     eig = conditional_lp - marginal_lp
     eig = eig.nansum(0) / torch.isfinite(eig).sum(0)
         
