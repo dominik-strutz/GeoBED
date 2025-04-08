@@ -79,15 +79,10 @@ class BED_base():
         
         try:
             self.m_prior_dist_entropy = self.m_prior_dist.entropy()
-        except NotImplementedError:
+        except (NotImplementedError, AttributeError):
             pass
         
         self.m_prior_dist_entropy = None
-        
-        try:
-            self.m_prior_dist_entropy = self.m_prior_dist.entropy()
-        except NotImplementedError:
-            pass
         
         if self.m_prior_dist_entropy is None:
             try:                
@@ -97,7 +92,7 @@ class BED_base():
                 logging.info('''Entropy of prior distribution could not be calculated. Calculating it numerically. 
                             Any errors will have no effect on the design optimisation.''')
                 del ent_samples
-            except NotImplementedError:
+            except (NotImplementedError, AttributeError):
                 logging.info('''Entropy of prior distribution could not be calculated. Setting it to zero. 
                             This will have no effect on the design optimisation.''')
                 self.m_prior_dist_entropy = torch.tensor(0.)
@@ -288,11 +283,18 @@ class BED_base_explicit(BED_base):
         
         super().__init__(m_prior_dist)
         
-        if not ((inspect.getfullargspec(data_likelihood_func).args == ['self', 'model_samples', 'design'] \
-                or inspect.getfullargspec(data_likelihood_func).args == ['model_samples', 'design']) \
-            and inspect.getfullargspec(data_likelihood_func).varargs is None \
-            and inspect.getfullargspec(data_likelihood_func).varkw is None):
-            raise ValueError('Data likelihood function must have the following signature: data_likelihood(model_samples, design)')
+        # Check if the function has the necessary parameters
+        args_spec = inspect.getfullargspec(data_likelihood_func)
+        required_args = ['model_samples', 'design']
+        # Check if all required arguments are in the function signature
+        # Allow for 'self' as first argument for methods
+        has_self = 'self' in args_spec.args and args_spec.args.index('self') == 0
+        func_args = args_spec.args[1:] if has_self else args_spec.args
+        
+        # Verify all required arguments are present (in any order)
+        if not all(arg in func_args for arg in required_args):
+            raise ValueError(f"Data likelihood function must include parameters: {required_args}")
+        
         
         self.data_likelihood_func = data_likelihood_func
         self.nuisance_dist = None

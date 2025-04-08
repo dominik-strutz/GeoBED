@@ -30,7 +30,7 @@ def dn(
             raise ValueError("M_prime must be provided for DN with nuisance parameters")
         data_likelihoods, _ = self.get_data_likelihood(
             design, n_model_samples=N, n_nuisance_samples=M_prime)
-        data_samples = data_likelihoods.sample()[0]
+        data_samples = data_likelihoods.sample().squeeze(0)[0]
         conditional_lp = data_likelihoods.log_prob(data_samples).logsumexp(0) - math.log(M_prime)
     else:
         if M_prime is not None:

@@ -30,10 +30,3 @@ class SampleDistribution():
     
     def _reset_sample_generator(self):
         self.iterator_counter = 0
-    
-    def entropy(self):
-        logging.info('Entropy of sample distribution is not defined. Setting it to zero.')
-        return torch.tensor(0.)
-        
-    def log_prob(self, x):
-        raise NotImplementedError('Log probability of sample distribution is not defined.')
