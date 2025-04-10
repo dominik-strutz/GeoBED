@@ -295,7 +295,6 @@ class BED_base_explicit(BED_base):
         if not all(arg in func_args for arg in required_args):
             raise ValueError(f"Data likelihood function must include parameters: {required_args}")
         
-        
         self.data_likelihood_func = data_likelihood_func
         self.nuisance_dist = None
         self.implict_data_likelihood_func = False
@@ -382,12 +381,14 @@ class BED_base_nuisance(BED_base):
             self.nuisance_dist = _Dummy_Cond_Dist(nuisance_dist)
         else:
             self.nuisance_dist = nuisance_dist
-                        
-        if not ((inspect.getfullargspec(data_likelihood_func).args == ['nuisance_samples', 'model_samples', 'design'] or \
-                 inspect.getfullargspec(data_likelihood_func).args == ['self', 'nuisance_samples', 'model_samples', 'design']) \
-            and inspect.getfullargspec(data_likelihood_func).varargs is None \
-            and inspect.getfullargspec(data_likelihood_func).varkw is None):
-            raise ValueError('Data likelihood function must have the following signature: data_likelihood(nuisance_samples, model_samples, design)')
+
+        # Check if the function has the necessary parameters
+        args_spec = inspect.getfullargspec(data_likelihood_func)
+        required_args = ['nuisance_samples', 'model_samples', 'design']
+        # Check if all required arguments are in the function signature
+        # Allow for 'self' as first argument for methods
+        has_self = 'self' in args_spec.args and args_spec.args.index('self') == 0
+        func_args = args_spec.args[1:] if has_self else args_spec.args
             
         self.data_likelihood_func = data_likelihood_func
         self.independent_nuisance_parameters = False
